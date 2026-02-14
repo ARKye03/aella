@@ -1,9 +1,14 @@
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{container_bg, outlined_container_bg};
+use harper_core::linting::{Lint, LintKind};
+use iced::widget::text::Highlighter;
 use iced::widget::{
-    button, column, container, markdown, row, scrollable, text, text_editor, text_input,
+    button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input,
 };
 use iced::{Element, Fill};
+use std::ops::Range;
+
+const APPLY_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/apply.svg");
 
 pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let title_input = text_input("Conversation title", &state.current_title)
@@ -27,6 +32,21 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         .spacing(8)
         .padding([8, 16])
         .align_y(iced::Center);
+
+    let apply_icon = svg(APPLY_ICON_PATH)
+        .width(16)
+        .height(16)
+        .style(|_theme, _status| svg::Style {
+            color: Some(iced::Color::WHITE),
+        });
+
+    let apply_all_button = button(
+        row![apply_icon, text("Apply All").size(13)]
+            .spacing(6)
+            .align_y(iced::Center),
+    )
+    .on_press_maybe((!state.grammar_lints.is_empty()).then_some(Message::ApplyAllSuggestions))
+    .padding([6, 12]);
 
     let mode_buttons = row![
         button(text("Raw Code").size(13))
@@ -53,14 +73,18 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             } else {
                 button::secondary
             }),
+        apply_all_button,
     ]
     .spacing(8)
     .padding([12, 16]);
 
     let editor_content: Element<'_, Message> = match state.view_mode {
         ViewMode::RawCode => {
+            let highlight_settings =
+                build_lint_highlight_settings(&state.editor_content.text(), &state.grammar_lints);
             let editor = text_editor(&state.editor_content)
                 .on_action(Message::EditorAction)
+                .highlight_with::<LintHighlighter>(highlight_settings, lint_highlight_format)
                 .height(Fill)
                 .padding(24);
 
@@ -155,18 +179,29 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             state
                 .grammar_lints
                 .iter()
+                .enumerate()
                 .take(10)
-                .map(|lint| {
+                .map(|(index, lint)| {
                     let message = lint.message.clone();
                     let suggestion_text = if let Some(suggestion) = lint.suggestions.first() {
                         format!("→ {}", suggestion)
                     } else {
                         String::from("(no suggestion)")
                     };
+                    let issue_color = lint_color_for_kind(lint.lint_kind);
+                    let apply_button = button(text("Apply").size(11))
+                        .on_press_maybe(
+                            lint.suggestions
+                                .first()
+                                .map(|_| Message::ApplyLintSuggestion(index)),
+                        )
+                        .padding([4, 8]);
 
                     Element::from(
                         column![
-                            text(message).size(13).color([1.0, 0.7, 0.7]),
+                            row![text(message).size(13).color(issue_color), apply_button]
+                                .align_y(iced::Center)
+                                .spacing(8),
                             text(suggestion_text).size(12).color([0.7, 0.7, 0.7]),
                         ]
                         .spacing(4)
@@ -209,4 +244,134 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     .spacing(0);
 
     container(full_editor_area).width(Fill).height(Fill).into()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LintHighlight {
+    Error,
+    Warning,
+    Suggestion,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LintHighlightSettings {
+    lines: Vec<Vec<(Range<usize>, LintHighlight)>>,
+}
+
+struct LintHighlighter {
+    settings: LintHighlightSettings,
+    current_line: usize,
+}
+
+impl Highlighter for LintHighlighter {
+    type Settings = LintHighlightSettings;
+    type Highlight = LintHighlight;
+    type Iterator<'a> = std::vec::IntoIter<(Range<usize>, Self::Highlight)>;
+
+    fn new(settings: &Self::Settings) -> Self {
+        Self {
+            settings: settings.clone(),
+            current_line: 0,
+        }
+    }
+
+    fn update(&mut self, new_settings: &Self::Settings) {
+        self.settings = new_settings.clone();
+    }
+
+    fn change_line(&mut self, line: usize) {
+        self.current_line = line;
+    }
+
+    fn highlight_line(&mut self, _line: &str) -> Self::Iterator<'_> {
+        let items = self
+            .settings
+            .lines
+            .get(self.current_line)
+            .cloned()
+            .unwrap_or_default();
+        self.current_line += 1;
+        items.into_iter()
+    }
+
+    fn current_line(&self) -> usize {
+        self.current_line
+    }
+}
+
+fn build_lint_highlight_settings(text: &str, lints: &[Lint]) -> LintHighlightSettings {
+    let line_segments = text.split('\n').collect::<Vec<_>>();
+    let mut line_starts = Vec::with_capacity(line_segments.len());
+    let mut cursor = 0usize;
+    for segment in &line_segments {
+        line_starts.push(cursor);
+        cursor += segment.chars().count() + 1;
+    }
+
+    let mut lines = vec![Vec::new(); line_segments.len().max(1)];
+
+    for lint in lints {
+        if lint.span.is_empty() {
+            continue;
+        }
+        let level = lint_level_from_kind(lint.lint_kind);
+        for (line_index, segment) in line_segments.iter().enumerate() {
+            let line_start = line_starts[line_index];
+            let line_end = line_start + segment.chars().count();
+
+            if lint.span.end <= line_start || lint.span.start >= line_end {
+                continue;
+            }
+
+            let local_start = lint.span.start.saturating_sub(line_start);
+            let local_end = lint.span.end.min(line_end).saturating_sub(line_start);
+            if local_start < local_end {
+                lines[line_index].push((local_start..local_end, level));
+            }
+        }
+    }
+
+    for line in &mut lines {
+        line.sort_by_key(|(span, _)| span.start);
+    }
+
+    LintHighlightSettings { lines }
+}
+
+fn lint_highlight_format(
+    highlight: &LintHighlight,
+    _theme: &iced::Theme,
+) -> iced_core::text::highlighter::Format<iced::Font> {
+    let mut format = iced_core::text::highlighter::Format::default();
+    format.color = Some(match highlight {
+        LintHighlight::Error => iced::Color::from_rgb(0.98, 0.35, 0.35),
+        LintHighlight::Warning => iced::Color::from_rgb(1.0, 0.78, 0.35),
+        LintHighlight::Suggestion => iced::Color::from_rgb(0.45, 0.82, 1.0),
+    });
+    format
+}
+
+fn lint_level_from_kind(kind: LintKind) -> LintHighlight {
+    match kind {
+        LintKind::Enhancement | LintKind::Style | LintKind::Readability => {
+            LintHighlight::Suggestion
+        }
+        LintKind::Usage
+        | LintKind::WordChoice
+        | LintKind::Regionalism
+        | LintKind::Repetition
+        | LintKind::Redundancy
+        | LintKind::Formatting
+        | LintKind::Miscellaneous
+        | LintKind::Eggcorn => LintHighlight::Warning,
+        _ => LintHighlight::Error,
+    }
+}
+
+fn lint_color_for_kind(kind: LintKind) -> [f32; 3] {
+    match lint_level_from_kind(kind) {
+        LintHighlight::Error => [1.0, 0.7, 0.7],
+        LintHighlight::Warning => [1.0, 0.82, 0.55],
+        LintHighlight::Suggestion => [0.65, 0.88, 1.0],
+    }
 }

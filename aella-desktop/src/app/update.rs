@@ -5,6 +5,7 @@ use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
 use iced::Task;
 use iced::widget::{markdown, text_editor};
+use std::cmp::Reverse;
 use std::sync::Arc;
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -126,6 +127,12 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                     |_| Message::RefreshLists,
                 );
             }
+        }
+        Message::ApplyLintSuggestion(index) => {
+            apply_single_suggestion(state, index);
+        }
+        Message::ApplyAllSuggestions => {
+            apply_all_suggestions(state);
         }
         Message::EditorAction(action) => {
             state.editor_content.perform(action);
@@ -332,4 +339,64 @@ fn clear_loaded_conversation(state: &mut State) {
     state.markdown_items = Vec::new();
     state.grammar_lints = Vec::new();
     state.last_checked_text.clear();
+}
+
+fn apply_single_suggestion(state: &mut State, lint_index: usize) {
+    let Some(lint) = state.grammar_lints.get(lint_index) else {
+        return;
+    };
+    let Some(suggestion) = lint.suggestions.first() else {
+        return;
+    };
+
+    let mut chars: Vec<char> = state.editor_content.text().chars().collect();
+    suggestion.apply(lint.span, &mut chars);
+    let updated = chars.into_iter().collect::<String>();
+    set_content_and_relint(state, updated);
+}
+
+fn apply_all_suggestions(state: &mut State) {
+    const MAX_PASSES: usize = 8;
+
+    let mut content = state.editor_content.text();
+
+    for _ in 0..MAX_PASSES {
+        let document = Document::new_markdown_default(&content, &state.dict);
+        let lints = state.linter.lint(&document);
+
+        let mut edits = lints
+            .iter()
+            .filter_map(|lint| lint.suggestions.first().map(|s| (lint.span, s.clone())))
+            .collect::<Vec<_>>();
+
+        if edits.is_empty() {
+            break;
+        }
+
+        // Apply from end to start to keep earlier spans stable within this pass.
+        edits.sort_by_key(|(span, _)| Reverse(span.start));
+        let mut chars: Vec<char> = content.chars().collect();
+        for (span, suggestion) in edits {
+            suggestion.apply(span, &mut chars);
+        }
+
+        let updated = chars.into_iter().collect::<String>();
+        if updated == content {
+            break;
+        }
+
+        content = updated;
+    }
+
+    set_content_and_relint(state, content);
+}
+
+fn set_content_and_relint(state: &mut State, content: String) {
+    state.editor_content = text_editor::Content::with_text(&content);
+    state.markdown_items = markdown::parse(&content).collect();
+    state.cursor_position = calculate_cursor_position(&state.editor_content);
+
+    let document = Document::new_markdown_default(&content, &state.dict);
+    state.grammar_lints = state.linter.lint(&document);
+    state.last_checked_text = content;
 }

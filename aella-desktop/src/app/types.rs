@@ -84,6 +84,8 @@ pub(crate) enum Message {
     MoveConversationToTrash(i64),
     RestoreConversation(i64),
     DeleteConversationPermanently(i64),
+    ApplyLintSuggestion(usize),
+    ApplyAllSuggestions,
     EditorAction(text_editor::Action),
     ToggleSidebar,
     SetViewMode(ViewMode),

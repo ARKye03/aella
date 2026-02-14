@@ -1,13 +1,16 @@
 [workspace]
-members = [
-    "aella-desktop",
-    "aella-cli",
-]
+members = ["aella-desktop", "aella-cli"]
 resolver = "2"
 
 [workspace.dependencies]
 harper-core = "1.6.0"
-iced = { version = "0.14.0", features = ["tokio", "canvas", "markdown", "svg"] }
+iced = { version = "0.14.0", features = [
+    "tokio",
+    "canvas",
+    "markdown",
+    "svg",
+    "highlighter",
+] }
 skim = { version = "2.0.2", default-features = false }
 tokio = { version = "1.49.0", features = ["full"] }
 turso = "0.4.4"

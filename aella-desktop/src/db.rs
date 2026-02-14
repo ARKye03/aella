@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use turso::{Builder, Connection, Result};
 
 #[derive(Clone, Debug)]
@@ -7,7 +8,19 @@ pub struct Database {
 
 impl Database {
     pub async fn new() -> Result<Self> {
-        let db = Builder::new_local("aella.db").build().await?;
+        let db_path = Self::get_db_path();
+
+        #[cfg(debug_assertions)]
+        eprintln!("[aella] database path: {}", db_path.display());
+
+        if !cfg!(debug_assertions) {
+            if let Some(parent) = db_path.parent() {
+                std::fs::create_dir_all(parent).expect("Failed to create database directory");
+            }
+        }
+
+        let db_path_str = db_path.to_string_lossy();
+        let db = Builder::new_local(&db_path_str).build().await?;
         let conn = db.connect()?;
 
         // Create conversations table
@@ -33,6 +46,17 @@ impl Database {
             .await;
 
         Ok(Self { conn })
+    }
+
+    fn get_db_path() -> PathBuf {
+        if cfg!(debug_assertions) {
+            return PathBuf::from("aella.db");
+        }
+
+        let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        path.push("aella");
+        path.push("aella.db");
+        path
     }
 
     pub async fn create_conversation(&self, title: &str, content: &str) -> Result<i64> {

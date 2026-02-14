@@ -9,3 +9,4 @@ iced = { workspace = true }
 skim = { workspace = true }
 tokio = { workspace = true }
 turso = { workspace = true }
+dirs = { workspace = true }

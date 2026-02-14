@@ -1,4 +1,5 @@
 pub(crate) mod types;
+mod ui;
 mod update;
 mod view;
 

@@ -511,13 +511,13 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
 
         let new_button = button(
             container(plus_icon)
-                .width(Fill)
-                .align_x(iced::alignment::Horizontal::Center),
+                .center_x(Fill)
+                .center_y(Fill),
         )
         .on_press(Message::NewConversation)
         .width(Fill)
         .height(52)
-        .padding([10, 0]);
+        .padding(0);
 
         let source_conversations = if state.selected_in_trash {
             &state.trashed_conversations
@@ -531,7 +531,11 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
                     .iter()
                     .map(|conv| {
                         let badge = compact_title_badge(&conv.title);
-                        button(text(badge).size(18).align_x(Center))
+                        button(
+                            container(text(badge).size(18).align_x(Center))
+                                .center_x(Fill)
+                                .center_y(Fill),
+                        )
                             .on_press(Message::ConversationSelected(conv.id))
                             .style(if state.selected_conversation == Some(conv.id) {
                                 button::primary
@@ -539,7 +543,8 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
                                 button::secondary
                             })
                             .width(Fill)
-                            .padding([14, 8])
+                            .height(52)
+                            .padding(0)
                             .into()
                     })
                     .collect::<Vec<Element<'_, Message>>>(),

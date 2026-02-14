@@ -1,6 +1,7 @@
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{container_bg, outlined_container_bg};
 use harper_core::linting::{Lint, LintKind};
+use iced::keyboard;
 use iced::widget::text::Highlighter;
 use iced::widget::{
     button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input,
@@ -236,6 +237,13 @@ fn build_raw_editor(state: &State) -> Element<'_, Message> {
         build_lint_highlight_settings(&state.editor_content.text(), &state.grammar_lints);
     let editor = text_editor(&state.editor_content)
         .on_action(Message::EditorAction)
+        .key_binding(|key_press| {
+            if is_app_shortcut_keypress(&key_press) {
+                Some(text_editor::Binding::Sequence(Vec::new()))
+            } else {
+                text_editor::Binding::from_key_press(key_press)
+            }
+        })
         .highlight_with::<LintHighlighter>(highlight_settings, lint_highlight_format)
         .height(Fill)
         .padding(24);
@@ -333,6 +341,27 @@ fn build_lint_highlight_settings(text: &str, lints: &[Lint]) -> LintHighlightSet
     }
 
     LintHighlightSettings { lines }
+}
+
+fn is_app_shortcut_keypress(key_press: &text_editor::KeyPress) -> bool {
+    if !key_press.modifiers.command() {
+        return false;
+    }
+
+    if let Some(character) = key_press
+        .key
+        .to_latin(key_press.physical_key)
+        .map(|c| c.to_ascii_lowercase())
+    {
+        return matches!(character, 'f' | 'b' | 'n' | '1' | '2' | '3');
+    }
+
+    matches!(
+        key_press.physical_key,
+        keyboard::key::Physical::Code(keyboard::key::Code::Digit1)
+            | keyboard::key::Physical::Code(keyboard::key::Code::Digit2)
+            | keyboard::key::Physical::Code(keyboard::key::Code::Digit3)
+    )
 }
 
 fn lint_highlight_format(

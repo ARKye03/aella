@@ -1,4 +1,5 @@
 use crate::app::types::{Message, State, ViewMode};
+use crate::app::ui::styles::{container_bg, outlined_container_bg};
 use iced::widget::{
     button, column, container, markdown, row, scrollable, text, text_editor, text_input,
 };
@@ -83,20 +84,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                     .width(Fill)
                     .height(Fill)
                     .padding(24)
-                    .style(|theme: &iced::Theme| {
-                        let palette = theme.palette();
-                        container::Style {
-                            background: Some(iced::Background::Color(
-                                palette.background.scale_alpha(0.3),
-                            )),
-                            border: iced::Border {
-                                width: 1.0,
-                                color: palette.background.scale_alpha(0.5),
-                                radius: 0.0.into(),
-                            },
-                            ..Default::default()
-                        }
-                    })
+                    .style(|theme: &iced::Theme| outlined_container_bg(theme, 0.3, 0.5))
             ]
             .spacing(0)
             .into()
@@ -208,49 +196,14 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let full_editor_area = column![
         container(title_bar)
             .width(Fill)
-            .style(|theme: &iced::Theme| {
-                let palette = theme.palette();
-                container::Style {
-                    background: Some(iced::Background::Color(
-                        palette.background.scale_alpha(0.35),
-                    )),
-                    border: iced::Border {
-                        width: 0.0,
-                        color: palette.background,
-                        radius: 0.0.into(),
-                    },
-                    ..Default::default()
-                }
-            }),
+            .style(|theme: &iced::Theme| container_bg(theme, 0.35)),
         container(mode_buttons)
             .width(Fill)
-            .style(|theme: &iced::Theme| {
-                let palette = theme.palette();
-                container::Style {
-                    background: Some(iced::Background::Color(palette.background.scale_alpha(0.5))),
-                    border: iced::Border {
-                        width: 0.0,
-                        color: palette.background,
-                        radius: 0.0.into(),
-                    },
-                    ..Default::default()
-                }
-            }),
+            .style(|theme: &iced::Theme| container_bg(theme, 0.5)),
         container(editor_content).height(Fill),
         container(suggestions_panel)
             .height(panel_height)
-            .style(|theme: &iced::Theme| {
-                let palette = theme.palette();
-                container::Style {
-                    background: Some(iced::Background::Color(palette.background.scale_alpha(0.3))),
-                    border: iced::Border {
-                        width: 1.0,
-                        color: palette.background.scale_alpha(0.5),
-                        radius: 0.0.into(),
-                    },
-                    ..Default::default()
-                }
-            }),
+            .style(|theme: &iced::Theme| outlined_container_bg(theme, 0.3, 0.5)),
         cursor_indicator,
     ]
     .spacing(0);

@@ -10,3 +10,4 @@ skim = { workspace = true }
 tokio = { workspace = true }
 turso = { workspace = true }
 dirs = { workspace = true }
+iced_core = "0.14.0"

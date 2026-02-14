@@ -2,6 +2,7 @@ use crate::db::{ConversationData, Database};
 use harper_core::Dialect;
 use harper_core::linting::LintGroup;
 use harper_core::spell::FstDictionary;
+use iced::keyboard;
 use iced::widget::{markdown, text_editor};
 use std::sync::Arc;
 
@@ -74,6 +75,7 @@ impl Default for State {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
+    KeyboardEvent(keyboard::Event),
     SearchChanged(String),
     TitleChanged(String),
     SaveTitle,

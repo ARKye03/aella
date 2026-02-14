@@ -3,10 +3,26 @@ mod ui;
 mod update;
 mod view;
 
+use crate::app::types::Message;
+use iced::event;
+use iced::widget::Id;
+use iced::Subscription;
+
 pub(crate) use types::State;
 pub(crate) use update::{initialize_database_task, update};
 pub(crate) use view::view;
 
 pub(crate) fn app_title(_state: &State) -> String {
     String::from("Aella")
+}
+
+pub(crate) fn subscription(_state: &State) -> Subscription<Message> {
+    event::listen_with(|event, _status, _window| match event {
+        iced::Event::Keyboard(keyboard_event) => Some(Message::KeyboardEvent(keyboard_event)),
+        _ => None,
+    })
+}
+
+pub(crate) fn sidebar_search_input_id() -> Id {
+    Id::new("sidebar-search-input")
 }

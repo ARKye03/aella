@@ -2,6 +2,7 @@ mod app;
 mod db;
 
 use app::{State, app_title, initialize_database_task, update, view};
+use app::subscription;
 use iced::window;
 
 fn main() -> iced::Result {
@@ -16,6 +17,7 @@ fn main() -> iced::Result {
         view,
     )
     .title(app_title)
+    .subscription(subscription)
     .window(window_settings)
     .run()
 }
@@ -29,7 +31,7 @@ fn app_icon() -> Option<window::Icon> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let bytes = include_bytes!("../assets/aellaIcon.png");
+        let bytes = include_bytes!("../assets/aella.icns");
         return window::icon::from_file_data(bytes, None).ok();
     }
 }

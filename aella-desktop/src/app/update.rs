@@ -1,16 +1,82 @@
-use crate::app::types::{Conversation, Message, State};
+use crate::app::sidebar_search_input_id;
+use crate::app::types::{Conversation, Message, State, ViewMode};
 use crate::db::Database;
 use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
+use iced::keyboard;
+use iced::keyboard::key::Physical;
 use iced::Task;
-use iced::widget::{markdown, text_editor};
+use iced::widget::{markdown, operation, text_editor};
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
+        Message::KeyboardEvent(keyboard::Event::KeyPressed {
+            key,
+            physical_key,
+            modifiers,
+            repeat,
+            ..
+        }) => {
+            if repeat || !modifiers.command() {
+                return Task::none();
+            }
+
+            if let Some(character) = key.to_latin(physical_key).map(|c| c.to_ascii_lowercase()) {
+                match character {
+                    'f' => {
+                        remove_shortcut_text_input_artifact(state, character);
+                        state.sidebar_collapsed = false;
+                        return operation::focus(sidebar_search_input_id());
+                    }
+                    '1' => {
+                        remove_shortcut_text_input_artifact(state, character);
+                        state.view_mode = ViewMode::RawCode;
+                    }
+                    '2' => {
+                        remove_shortcut_text_input_artifact(state, character);
+                        state.view_mode = ViewMode::BothViews;
+                    }
+                    '3' => {
+                        remove_shortcut_text_input_artifact(state, character);
+                        state.view_mode = ViewMode::RenderedView;
+                    }
+                    'b' => {
+                        remove_shortcut_text_input_artifact(state, character);
+                        if modifiers.shift() {
+                            state.errors_panel_collapsed = !state.errors_panel_collapsed;
+                        } else {
+                            state.sidebar_collapsed = !state.sidebar_collapsed;
+                        }
+                    }
+                    'n' => {
+                        remove_shortcut_text_input_artifact(state, character);
+                        return update(state, Message::NewConversation);
+                    }
+                    _ => {}
+                }
+            } else if key_matches_digit(physical_key) {
+                match physical_key {
+                    Physical::Code(keyboard::key::Code::Digit1) => {
+                        remove_shortcut_text_input_artifact(state, '1');
+                        state.view_mode = ViewMode::RawCode;
+                    }
+                    Physical::Code(keyboard::key::Code::Digit2) => {
+                        remove_shortcut_text_input_artifact(state, '2');
+                        state.view_mode = ViewMode::BothViews;
+                    }
+                    Physical::Code(keyboard::key::Code::Digit3) => {
+                        remove_shortcut_text_input_artifact(state, '3');
+                        state.view_mode = ViewMode::RenderedView
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Message::KeyboardEvent(_) => {}
         Message::SearchChanged(query) => {
             state.search_query = query;
         }
@@ -340,6 +406,61 @@ fn clear_loaded_conversation(state: &mut State) {
     state.markdown_items = Vec::new();
     state.grammar_lints = Vec::new();
     state.last_checked_text.clear();
+}
+
+fn key_matches_digit(physical_key: Physical) -> bool {
+    matches!(
+        physical_key,
+        Physical::Code(keyboard::key::Code::Digit1)
+            | Physical::Code(keyboard::key::Code::Digit2)
+            | Physical::Code(keyboard::key::Code::Digit3)
+    )
+}
+
+fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
+    let changed_search = strip_trailing_shortcut_char(&mut state.search_query, shortcut_char);
+    let changed_title = strip_trailing_shortcut_char(&mut state.current_title, shortcut_char);
+
+    if changed_search || !changed_title {
+        return;
+    }
+
+    if let Some(selected_id) = state.selected_conversation {
+        if state.selected_in_trash {
+            if let Some(conv) = state
+                .trashed_conversations
+                .iter_mut()
+                .find(|conv| conv.id == selected_id)
+            {
+                conv.title = state.current_title.clone();
+            }
+        } else if let Some(conv) = state
+            .conversations
+            .iter_mut()
+            .find(|conv| conv.id == selected_id)
+        {
+            conv.title = state.current_title.clone();
+        }
+    }
+}
+
+fn strip_trailing_shortcut_char(value: &mut String, shortcut_char: char) -> bool {
+    let mut chars = value.chars();
+    let Some(last) = chars.next_back() else {
+        return false;
+    };
+
+    let should_strip = if shortcut_char.is_ascii_alphabetic() {
+        last.eq_ignore_ascii_case(&shortcut_char)
+    } else {
+        last == shortcut_char
+    };
+
+    if should_strip {
+        value.pop();
+    }
+
+    should_strip
 }
 
 fn apply_single_suggestion(state: &mut State, lint_index: usize) {

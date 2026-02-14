@@ -25,6 +25,8 @@ struct State {
     grammar_lints: Vec<harper_core::linting::Lint>,
     view_mode: ViewMode,
     markdown_items: Vec<markdown::Item>,
+    cursor_position: (usize, usize), // (line, column)
+    errors_panel_collapsed: bool,
 }
 
 impl Default for State {
@@ -64,6 +66,8 @@ impl Default for State {
             grammar_lints: Vec::new(),
             view_mode: ViewMode::BothViews,
             markdown_items,
+            cursor_position: (1, 1),
+            errors_panel_collapsed: false,
         }
     }
 }
@@ -84,6 +88,7 @@ enum Message {
     ToggleSidebar,
     SetViewMode(ViewMode),
     MarkdownLinkClicked(markdown::Uri),
+    ToggleErrorsPanel,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -118,6 +123,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
 
             // Re-parse markdown
             state.markdown_items = markdown::parse(&text).collect();
+
+            // Update cursor position
+            state.cursor_position = calculate_cursor_position(&state.editor_content);
         }
         Message::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
@@ -128,8 +136,17 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::MarkdownLinkClicked(_url) => {
             // Handle markdown link clicks if needed
         }
+        Message::ToggleErrorsPanel => {
+            state.errors_panel_collapsed = !state.errors_panel_collapsed;
+        }
     }
     Task::none()
+}
+
+fn calculate_cursor_position(content: &text_editor::Content) -> (usize, usize) {
+    let cursor = content.cursor();
+    // Convert to 1-indexed (line + 1, column + 1) for display
+    (cursor.position.line + 1, cursor.position.column + 1)
 }
 
 fn view(state: &State) -> Element<'_, Message> {
@@ -342,13 +359,43 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
     };
 
     // Grammar suggestions panel
-    let suggestions_panel = if state.grammar_lints.is_empty() {
+    let panel_height = if state.errors_panel_collapsed { 40 } else { 200 };
+
+    let toggle_icon = if state.errors_panel_collapsed { "▲" } else { "▼" };
+    let issue_count = state.grammar_lints.len();
+    let status_text = if issue_count == 0 {
+        "No issues found ✓".to_string()
+    } else {
+        format!("{} issue(s)", issue_count)
+    };
+
+    let panel_header = row![
+        text(status_text)
+            .size(13)
+            .color(if issue_count == 0 { [0.5, 0.8, 0.5] } else { [1.0, 0.8, 0.5] }),
+        button(text(toggle_icon).size(12))
+            .on_press(Message::ToggleErrorsPanel)
+            .padding([4, 8])
+            .style(button::text),
+    ]
+    .spacing(12)
+    .align_y(Center);
+
+    let suggestions_panel = if state.errors_panel_collapsed {
+        container(panel_header)
+            .padding(12)
+            .width(Fill)
+    } else if state.grammar_lints.is_empty() {
         container(
-            text("No grammar issues found! ✓")
-                .size(14)
-                .color([0.5, 0.8, 0.5]),
+            column![
+                panel_header,
+                text("Your grammar is perfect!")
+                    .size(12)
+                    .color([0.7, 0.7, 0.7])
+            ]
+            .spacing(8)
         )
-        .padding(16)
+        .padding(12)
         .width(Fill)
     } else {
         let lint_list = column(
@@ -379,16 +426,23 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
 
         container(
             column![
-                text(format!("{} issue(s) found", state.grammar_lints.len()))
-                    .size(14)
-                    .color([1.0, 0.8, 0.5]),
+                panel_header,
                 scrollable(lint_list).height(Fill),
             ]
-            .spacing(12),
+            .spacing(8),
         )
-        .padding(16)
+        .padding(12)
         .width(Fill)
     };
+
+    // Cursor position indicator
+    let cursor_indicator = container(
+        text(format!("Ln {}, Col {}", state.cursor_position.0, state.cursor_position.1))
+            .size(12)
+            .color([0.6, 0.6, 0.6])
+    )
+    .padding([4, 12])
+    .align_x(iced::alignment::Horizontal::Right);
 
     // Combine mode buttons, editor content, and suggestions in a column
     let full_editor_area = column![
@@ -410,7 +464,7 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
             }),
         container(editor_content).height(Fill),
         container(suggestions_panel)
-            .height(200)
+            .height(panel_height)
             .style(|theme: &iced::Theme| {
                 let palette = theme.palette();
                 container::Style {
@@ -424,7 +478,8 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
                     },
                     ..Default::default()
                 }
-            })
+            }),
+        cursor_indicator,
     ]
     .spacing(0);
 

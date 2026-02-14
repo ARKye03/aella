@@ -1,0 +1,11 @@
+[package]
+name = "aella-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+harper-core = { workspace = true }
+iced = { workspace = true }
+skim = { workspace = true }
+tokio = { workspace = true }
+turso = { workspace = true }

@@ -34,7 +34,10 @@ enum ViewMode {
 struct State {
     search_query: String,
     conversations: Vec<Conversation>,
+    trashed_conversations: Vec<Conversation>,
     selected_conversation: Option<i64>,
+    selected_in_trash: bool,
+    current_title: String,
     editor_content: text_editor::Content,
     sidebar_collapsed: bool,
     linter: LintGroup,
@@ -62,7 +65,10 @@ impl Default for State {
         Self {
             search_query: String::new(),
             conversations: Vec::new(), // Start with empty list, will load from DB
+            trashed_conversations: Vec::new(),
             selected_conversation: None,
+            selected_in_trash: false,
+            current_title: String::from("Untitled"),
             editor_content: text_editor::Content::with_text(initial_text),
             sidebar_collapsed: false,
             linter,
@@ -88,8 +94,15 @@ struct Conversation {
 #[derive(Debug, Clone)]
 enum Message {
     SearchChanged(String),
+    TitleChanged(String),
+    SaveTitle,
     ConversationSelected(i64),
     NewConversation,
+    ShowConversations,
+    ShowTrash,
+    MoveConversationToTrash(i64),
+    RestoreConversation(i64),
+    DeleteConversationPermanently(i64),
     EditorAction(text_editor::Action),
     ToggleSidebar,
     SetViewMode(ViewMode),
@@ -97,7 +110,9 @@ enum Message {
     ToggleErrorsPanel,
     DatabaseInitialized(Database),
     ConversationsLoaded(Vec<ConversationData>),
-    ConversationContentLoaded(String), // Load just content, not entire list
+    TrashedConversationsLoaded(Vec<ConversationData>),
+    ConversationDataLoaded(ConversationData),
+    RefreshLists,
     GrammarChecked {
         content: String,
         lints: Vec<harper_core::linting::Lint>,
@@ -111,76 +126,37 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::SearchChanged(query) => {
             state.search_query = query;
         }
-        Message::ConversationSelected(selected_id) => {
-            // Save current conversation before switching
-            if let (Some(database), Some(current_id)) =
-                (&state.database, state.selected_conversation)
-            {
-                if let Some(conversation) = state
-                    .conversations
-                    .iter()
-                    .find(|conversation| conversation.id == current_id)
-                {
-                    let db_clone = database.clone();
-                    let id = conversation.id;
-                    let title = conversation.title.clone();
-                    let content = state.editor_content.text();
-
-                    let save_task = Task::perform(
-                        async move {
-                            db_clone
-                                .update_conversation(id, &title, &content)
-                                .await
-                                .ok();
-                        },
-                        |_| Message::ConversationSaved,
-                    );
-
-                    // Load the selected conversation content
-                    state.selected_conversation = Some(selected_id);
-                    if state
-                        .conversations
-                        .iter()
-                        .any(|conv| conv.id == selected_id)
+        Message::TitleChanged(title) => {
+            state.current_title = title;
+            if let Some(selected_id) = state.selected_conversation {
+                if state.selected_in_trash {
+                    if let Some(conv) = state
+                        .trashed_conversations
+                        .iter_mut()
+                        .find(|conv| conv.id == selected_id)
                     {
-                        let db_clone2 = database.clone();
-
-                        return Task::batch(vec![
-                            save_task,
-                            Task::perform(
-                                async move {
-                                    db_clone2
-                                        .get_conversation(selected_id)
-                                        .await
-                                        .ok()
-                                        .flatten()
-                                        .map(|conv_data| conv_data.content)
-                                        .unwrap_or_default()
-                                },
-                                Message::ConversationContentLoaded,
-                            ),
-                        ]);
+                        conv.title = state.current_title.clone();
                     }
-                    return save_task;
+                } else if let Some(conv) = state
+                    .conversations
+                    .iter_mut()
+                    .find(|conv| conv.id == selected_id)
+                {
+                    conv.title = state.current_title.clone();
                 }
             }
-
+        }
+        Message::SaveTitle => {
+            return save_current_conversation_task(state);
+        }
+        Message::ConversationSelected(selected_id) => {
+            let save_task = save_current_conversation_task(state);
             state.selected_conversation = Some(selected_id);
-            if let Some(database) = &state.database {
-                let db_clone = database.clone();
-                return Task::perform(
-                    async move {
-                        db_clone
-                            .get_conversation(selected_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|conv_data| conv_data.content)
-                            .unwrap_or_default()
-                    },
-                    Message::ConversationContentLoaded,
-                );
-            }
+            state.selected_in_trash = state
+                .trashed_conversations
+                .iter()
+                .any(|conv| conv.id == selected_id);
+            return Task::batch(vec![save_task, load_conversation_task(state, selected_id)]);
         }
         Message::NewConversation => {
             if let Some(database) = &state.database {
@@ -194,10 +170,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                             .create_conversation(&title, &content)
                             .await
                             .unwrap_or(0);
-                        // Reload all conversations after creating
-                        db_clone.get_all_conversations().await.unwrap_or_default()
+                        ()
                     },
-                    Message::ConversationsLoaded,
+                    |_| Message::RefreshLists,
                 );
             } else {
                 // Fallback if database not ready
@@ -211,7 +186,71 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                     },
                 );
                 state.selected_conversation = Some(new_id as i64);
+                state.current_title = format!("New Conversation {}", new_id);
                 state.editor_content = text_editor::Content::new();
+            }
+        }
+        Message::ShowConversations => {
+            state.selected_in_trash = false;
+            state.selected_conversation = state.conversations.first().map(|conv| conv.id);
+            if let Some(id) = state.selected_conversation {
+                return load_conversation_task(state, id);
+            }
+        }
+        Message::ShowTrash => {
+            state.selected_in_trash = true;
+            state.selected_conversation = state.trashed_conversations.first().map(|conv| conv.id);
+            if let Some(id) = state.selected_conversation {
+                return load_conversation_task(state, id);
+            }
+        }
+        Message::MoveConversationToTrash(id) => {
+            if let Some(database) = &state.database {
+                let db_clone = database.clone();
+                if state.selected_conversation == Some(id) {
+                    state.selected_conversation = None;
+                    state.current_title = String::from("Untitled");
+                    state.editor_content = text_editor::Content::new();
+                    state.markdown_items = Vec::new();
+                    state.grammar_lints = Vec::new();
+                    state.last_checked_text.clear();
+                }
+                return Task::perform(
+                    async move {
+                        db_clone.trash_conversation(id).await.ok();
+                    },
+                    |_| Message::RefreshLists,
+                );
+            }
+        }
+        Message::RestoreConversation(id) => {
+            if let Some(database) = &state.database {
+                let db_clone = database.clone();
+                return Task::perform(
+                    async move {
+                        db_clone.restore_conversation(id).await.ok();
+                    },
+                    |_| Message::RefreshLists,
+                );
+            }
+        }
+        Message::DeleteConversationPermanently(id) => {
+            if let Some(database) = &state.database {
+                let db_clone = database.clone();
+                if state.selected_conversation == Some(id) {
+                    state.selected_conversation = None;
+                    state.current_title = String::from("Untitled");
+                    state.editor_content = text_editor::Content::new();
+                    state.markdown_items = Vec::new();
+                    state.grammar_lints = Vec::new();
+                    state.last_checked_text.clear();
+                }
+                return Task::perform(
+                    async move {
+                        db_clone.delete_conversation(id).await.ok();
+                    },
+                    |_| Message::RefreshLists,
+                );
             }
         }
         Message::EditorAction(action) => {
@@ -247,43 +286,69 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::DatabaseInitialized(db) => {
             state.database = Some(db);
-            // Load conversations from database
-            if let Some(database) = &state.database {
-                let db_clone = database.clone();
-                return Task::perform(
-                    async move { db_clone.get_all_conversations().await.unwrap_or_default() },
-                    Message::ConversationsLoaded,
-                );
-            }
+            return refresh_lists_task(state);
         }
         Message::ConversationsLoaded(db_conversations) => {
-            // Convert database conversations to UI conversations
+            let had_selection = state.selected_conversation;
             state.conversations = db_conversations
                 .iter()
                 .map(|conv| Conversation {
                     id: conv.id,
                     title: conv.title.clone(),
-                    preview: conv.content.chars().take(50).collect::<String>() + "...",
+                    preview: preview(&conv.content),
                 })
                 .collect();
 
-            // Load the most recently edited conversation (first due to ORDER BY updated_at DESC)
-            if !state.conversations.is_empty() {
-                state.selected_conversation = Some(state.conversations[0].id);
-                if let Some(conv) = db_conversations.first() {
-                    state.editor_content = text_editor::Content::with_text(&conv.content);
-                    state.markdown_items = markdown::parse(&conv.content).collect();
-                    state.last_checked_text = conv.content.clone();
-                    return run_grammar_check_task(state.dict.clone(), conv.content.clone());
+            if !state.selected_in_trash {
+                let next_selected = had_selection.and_then(|selected_id| {
+                    state
+                        .conversations
+                        .iter()
+                        .find(|conv| conv.id == selected_id)
+                        .map(|_| selected_id)
+                });
+                state.selected_conversation =
+                    next_selected.or_else(|| state.conversations.first().map(|conv| conv.id));
+                if let Some(id) = state.selected_conversation {
+                    return load_conversation_task(state, id);
                 }
             }
         }
-        Message::ConversationContentLoaded(content) => {
-            // Update editor with loaded content without touching conversations list
-            state.editor_content = text_editor::Content::with_text(&content);
-            state.markdown_items = markdown::parse(&content).collect();
-            state.last_checked_text = content.clone();
-            return run_grammar_check_task(state.dict.clone(), content);
+        Message::TrashedConversationsLoaded(db_conversations) => {
+            let had_selection = state.selected_conversation;
+            state.trashed_conversations = db_conversations
+                .iter()
+                .map(|conv| Conversation {
+                    id: conv.id,
+                    title: conv.title.clone(),
+                    preview: preview(&conv.content),
+                })
+                .collect();
+
+            if state.selected_in_trash {
+                let next_selected = had_selection.and_then(|selected_id| {
+                    state
+                        .trashed_conversations
+                        .iter()
+                        .find(|conv| conv.id == selected_id)
+                        .map(|_| selected_id)
+                });
+                state.selected_conversation = next_selected
+                    .or_else(|| state.trashed_conversations.first().map(|conv| conv.id));
+                if let Some(id) = state.selected_conversation {
+                    return load_conversation_task(state, id);
+                }
+            }
+        }
+        Message::ConversationDataLoaded(conv) => {
+            state.current_title = conv.title;
+            state.editor_content = text_editor::Content::with_text(&conv.content);
+            state.markdown_items = markdown::parse(&conv.content).collect();
+            state.last_checked_text = conv.content.clone();
+            return run_grammar_check_task(state.dict.clone(), conv.content);
+        }
+        Message::RefreshLists => {
+            return refresh_lists_task(state);
         }
         Message::GrammarChecked { content, lints } => {
             // Drop stale lint results that completed after the user changed text.
@@ -307,6 +372,75 @@ fn initialize_database_task() -> Task<Message> {
             Message::Noop
         }
     })
+}
+
+fn save_current_conversation_task(state: &State) -> Task<Message> {
+    if let (Some(database), Some(selected_id)) = (&state.database, state.selected_conversation) {
+        let db_clone = database.clone();
+        let title = state.current_title.clone();
+        let content = state.editor_content.text();
+        return Task::perform(
+            async move {
+                db_clone
+                    .update_conversation(selected_id, &title, &content)
+                    .await
+                    .ok();
+            },
+            |_| Message::ConversationSaved,
+        );
+    }
+    Task::none()
+}
+
+fn load_conversation_task(state: &State, id: i64) -> Task<Message> {
+    if let Some(database) = &state.database {
+        let db_clone = database.clone();
+        return Task::perform(
+            async move { db_clone.get_conversation(id).await.ok().flatten() },
+            |conv| {
+                if let Some(data) = conv {
+                    Message::ConversationDataLoaded(data)
+                } else {
+                    Message::Noop
+                }
+            },
+        );
+    }
+    Task::none()
+}
+
+fn refresh_lists_task(state: &State) -> Task<Message> {
+    if let Some(database) = &state.database {
+        let active_db = database.clone();
+        let trash_db = database.clone();
+        return Task::batch(vec![
+            Task::perform(
+                async move { active_db.get_all_conversations().await.unwrap_or_default() },
+                Message::ConversationsLoaded,
+            ),
+            Task::perform(
+                async move {
+                    trash_db
+                        .get_trashed_conversations()
+                        .await
+                        .unwrap_or_default()
+                },
+                Message::TrashedConversationsLoaded,
+            ),
+        ]);
+    }
+    Task::none()
+}
+
+fn preview(content: &str) -> String {
+    if content.is_empty() {
+        return String::from("Start writing...");
+    }
+    let mut text = content.chars().take(50).collect::<String>();
+    if content.chars().count() > 50 {
+        text.push_str("...");
+    }
+    text
 }
 
 fn run_grammar_check_task(dict: Arc<FstDictionary>, content: String) -> Task<Message> {
@@ -365,7 +499,16 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
             .width(Fill)
             .padding(12);
 
-        let sidebar_content = column![toggle_button, new_button].spacing(8);
+        let mode_button = button(text(if state.selected_in_trash { "T" } else { "C" }).size(16))
+            .on_press(if state.selected_in_trash {
+                Message::ShowConversations
+            } else {
+                Message::ShowTrash
+            })
+            .width(Fill)
+            .padding(12);
+
+        let sidebar_content = column![toggle_button, mode_button, new_button].spacing(8);
 
         return container(sidebar_content)
             .width(sidebar_width)
@@ -395,8 +538,31 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
     .width(Fill)
     .padding([8, 16]);
 
-    let filtered_conversations: Vec<&Conversation> = state
-        .conversations
+    let mode_switch = row![
+        button(text("Conversations").size(13))
+            .on_press(Message::ShowConversations)
+            .style(if state.selected_in_trash {
+                button::secondary
+            } else {
+                button::primary
+            }),
+        button(text("Trash").size(13))
+            .on_press(Message::ShowTrash)
+            .style(if state.selected_in_trash {
+                button::primary
+            } else {
+                button::secondary
+            }),
+    ]
+    .spacing(8);
+
+    let source_conversations = if state.selected_in_trash {
+        &state.trashed_conversations
+    } else {
+        &state.conversations
+    };
+
+    let filtered_conversations: Vec<&Conversation> = source_conversations
         .iter()
         .filter(|conv| {
             state.search_query.is_empty()
@@ -416,18 +582,48 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
             filtered_conversations
                 .iter()
                 .map(|conv| {
-                    let conv_button = button(
+                    let is_selected = state.selected_conversation == Some(conv.id);
+                    let open_button = button(
                         column![
                             text(&conv.title),
                             text(&conv.preview).size(12).color([0.6, 0.6, 0.6]),
                         ]
                         .spacing(4)
-                        .padding([12, 16]),
+                        .padding([12, 12]),
                     )
                     .on_press(Message::ConversationSelected(conv.id))
+                    .style(if is_selected {
+                        button::primary
+                    } else {
+                        button::secondary
+                    })
                     .width(Fill);
 
-                    Element::from(conv_button)
+                    let actions: Element<'_, Message> = if state.selected_in_trash {
+                        row![
+                            button(text("Restore").size(11))
+                                .on_press(Message::RestoreConversation(conv.id))
+                                .padding([8, 10])
+                                .style(button::primary),
+                            button(text("Delete").size(11))
+                                .on_press(Message::DeleteConversationPermanently(conv.id))
+                                .padding([8, 10])
+                                .style(button::danger),
+                        ]
+                        .spacing(6)
+                        .into()
+                    } else {
+                        button(text("Trash").size(11))
+                            .on_press(Message::MoveConversationToTrash(conv.id))
+                            .padding([8, 10])
+                            .into()
+                    };
+
+                    Element::from(
+                        column![open_button, container(actions).padding([0, 4])]
+                            .spacing(6)
+                            .width(Fill),
+                    )
                 })
                 .collect::<Vec<_>>(),
         )
@@ -435,7 +631,18 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
         .padding([8, 12]),
     );
 
-    let sidebar_content = column![toggle_button, search, new_button, conversation_list].spacing(8);
+    let sidebar_content = if state.selected_in_trash {
+        column![toggle_button, mode_switch, search, conversation_list].spacing(8)
+    } else {
+        column![
+            toggle_button,
+            mode_switch,
+            search,
+            new_button,
+            conversation_list
+        ]
+        .spacing(8)
+    };
 
     container(sidebar_content)
         .width(sidebar_width)
@@ -445,6 +652,28 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
 }
 
 fn build_editor_area(state: &State) -> Element<'_, Message> {
+    let title_input = text_input("Conversation title", &state.current_title)
+        .on_input(Message::TitleChanged)
+        .on_submit(Message::SaveTitle)
+        .padding(10)
+        .width(Fill);
+
+    let title_actions: Element<'_, Message> = if state.selected_in_trash {
+        text("This conversation is in Trash").size(12).into()
+    } else if let Some(id) = state.selected_conversation {
+        button(text("Move to Trash").size(12))
+            .on_press(Message::MoveConversationToTrash(id))
+            .padding([8, 10])
+            .into()
+    } else {
+        text("").into()
+    };
+
+    let title_bar = row![title_input, title_actions]
+        .spacing(8)
+        .padding([8, 16])
+        .align_y(Center);
+
     // View mode buttons
     let mode_buttons = row![
         button(text("Raw Code").size(13))
@@ -629,6 +858,22 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
 
     // Combine mode buttons, editor content, and suggestions in a column
     let full_editor_area = column![
+        container(title_bar)
+            .width(Fill)
+            .style(|theme: &iced::Theme| {
+                let palette = theme.palette();
+                container::Style {
+                    background: Some(iced::Background::Color(
+                        palette.background.scale_alpha(0.35),
+                    )),
+                    border: iced::Border {
+                        width: 0.0,
+                        color: palette.background,
+                        radius: 0.0.into(),
+                    },
+                    ..Default::default()
+                }
+            }),
         container(mode_buttons)
             .width(Fill)
             .style(|theme: &iced::Theme| {

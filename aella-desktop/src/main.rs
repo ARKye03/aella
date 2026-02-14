@@ -6,6 +6,7 @@ use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
 use iced::widget::{
     button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input,
+    tooltip,
 };
 use iced::{Center, Color, Element, Fill, Task};
 use std::sync::Arc;
@@ -458,6 +459,22 @@ fn compact_title_badge(title: &str) -> String {
         .to_ascii_uppercase()
 }
 
+fn tooltip_container_style(theme: &iced::Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(iced::Background::Color(Color::from_rgba(
+            0.08, 0.09, 0.12, 0.97,
+        ))),
+        text_color: Some(Color::WHITE),
+        border: iced::Border {
+            width: 1.0,
+            color: palette.background.scale_alpha(0.75),
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    }
+}
+
 fn run_grammar_check_task(dict: Arc<FstDictionary>, content: String) -> Task<Message> {
     Task::perform(
         async move {
@@ -509,15 +526,11 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
                 color: Some(Color::WHITE),
             });
 
-        let new_button = button(
-            container(plus_icon)
-                .center_x(Fill)
-                .center_y(Fill),
-        )
-        .on_press(Message::NewConversation)
-        .width(Fill)
-        .height(52)
-        .padding(0);
+        let new_button = button(container(plus_icon).center_x(Fill).center_y(Fill))
+            .on_press(Message::NewConversation)
+            .width(Fill)
+            .height(52)
+            .padding(0);
 
         let source_conversations = if state.selected_in_trash {
             &state.trashed_conversations
@@ -531,28 +544,52 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
                     .iter()
                     .map(|conv| {
                         let badge = compact_title_badge(&conv.title);
-                        button(
+                        let compact_button = button(
                             container(text(badge).size(18).align_x(Center))
                                 .center_x(Fill)
                                 .center_y(Fill),
                         )
-                            .on_press(Message::ConversationSelected(conv.id))
-                            .style(if state.selected_conversation == Some(conv.id) {
-                                button::primary
-                            } else {
-                                button::secondary
-                            })
-                            .width(Fill)
-                            .height(52)
-                            .padding(0)
-                            .into()
+                        .on_press(Message::ConversationSelected(conv.id))
+                        .style(if state.selected_conversation == Some(conv.id) {
+                            button::primary
+                        } else {
+                            button::secondary
+                        })
+                        .width(Fill)
+                        .height(52)
+                        .padding(0);
+
+                        tooltip(
+                            compact_button,
+                            text(conv.title.clone()),
+                            tooltip::Position::Right,
+                        )
+                        .padding(8)
+                        .style(tooltip_container_style)
+                        .into()
                     })
                     .collect::<Vec<Element<'_, Message>>>(),
             )
             .spacing(8),
         );
 
-        let sidebar_content = column![toggle_button, new_button, compact_list].spacing(8);
+        let toggle_with_tooltip = tooltip(
+            toggle_button,
+            text("Toggle Sidebar View"),
+            tooltip::Position::Right,
+        )
+        .padding(8)
+        .style(tooltip_container_style);
+        let add_with_tooltip = tooltip(
+            new_button,
+            text("Add new conversation"),
+            tooltip::Position::Right,
+        )
+        .padding(8)
+        .style(tooltip_container_style);
+
+        let sidebar_content =
+            column![toggle_with_tooltip, add_with_tooltip, compact_list].spacing(8);
 
         return container(sidebar_content)
             .width(sidebar_width)

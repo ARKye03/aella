@@ -1,11 +1,27 @@
+mod db;
+
+use db::{ConversationData, Database};
 use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
-use iced::widget::{button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input};
+use iced::widget::{
+    button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input,
+};
 use iced::{Center, Color, Element, Fill, Task};
+use std::sync::Arc;
 
 fn main() -> iced::Result {
-    iced::run(update, view)
+    iced::application(
+        || (State::default(), initialize_database_task()),
+        update,
+        view,
+    )
+    .title(app_title)
+    .run()
+}
+
+fn app_title(_state: &State) -> String {
+    String::from("Aella")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -18,7 +34,7 @@ enum ViewMode {
 struct State {
     search_query: String,
     conversations: Vec<Conversation>,
-    selected_conversation: Option<usize>,
+    selected_conversation: Option<i64>,
     editor_content: text_editor::Content,
     sidebar_collapsed: bool,
     linter: LintGroup,
@@ -27,12 +43,15 @@ struct State {
     markdown_items: Vec<markdown::Item>,
     cursor_position: (usize, usize), // (line, column)
     errors_panel_collapsed: bool,
+    database: Option<Database>,
+    dict: Arc<FstDictionary>, // Reuse dictionary instead of creating on every keystroke
+    last_checked_text: String, // Track last text to avoid redundant grammar checks
 }
 
 impl Default for State {
     fn default() -> Self {
         let dict = FstDictionary::curated();
-        let linter = LintGroup::new_curated(dict, Dialect::American);
+        let linter = LintGroup::new_curated(dict.clone(), Dialect::American);
 
         let initial_text = "# Welcome to Aella\n\n\
                 Start typing to check your grammar in real-time.\n\n\
@@ -42,24 +61,8 @@ impl Default for State {
 
         Self {
             search_query: String::new(),
-            conversations: vec![
-                Conversation {
-                    id: 1,
-                    title: String::from("Welcome to Aella"),
-                    preview: String::from("Getting started with grammar checking..."),
-                },
-                Conversation {
-                    id: 2,
-                    title: String::from("Project Ideas"),
-                    preview: String::from("Brainstorming new features..."),
-                },
-                Conversation {
-                    id: 3,
-                    title: String::from("Meeting Notes"),
-                    preview: String::from("Discussion points from today..."),
-                },
-            ],
-            selected_conversation: Some(0),
+            conversations: Vec::new(), // Start with empty list, will load from DB
+            selected_conversation: None,
             editor_content: text_editor::Content::with_text(initial_text),
             sidebar_collapsed: false,
             linter,
@@ -68,13 +71,16 @@ impl Default for State {
             markdown_items,
             cursor_position: (1, 1),
             errors_panel_collapsed: false,
+            database: None,
+            dict, // Store dictionary for reuse
+            last_checked_text: initial_text.to_string(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 struct Conversation {
-    id: usize,
+    id: i64,
     title: String,
     preview: String,
 }
@@ -82,13 +88,22 @@ struct Conversation {
 #[derive(Debug, Clone)]
 enum Message {
     SearchChanged(String),
-    ConversationSelected(usize),
+    ConversationSelected(i64),
     NewConversation,
     EditorAction(text_editor::Action),
     ToggleSidebar,
     SetViewMode(ViewMode),
     MarkdownLinkClicked(markdown::Uri),
     ToggleErrorsPanel,
+    DatabaseInitialized(Database),
+    ConversationsLoaded(Vec<ConversationData>),
+    ConversationContentLoaded(String), // Load just content, not entire list
+    GrammarChecked {
+        content: String,
+        lints: Vec<harper_core::linting::Lint>,
+    },
+    ConversationSaved,
+    Noop,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -96,35 +111,126 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::SearchChanged(query) => {
             state.search_query = query;
         }
-        Message::ConversationSelected(index) => {
-            state.selected_conversation = Some(index);
+        Message::ConversationSelected(selected_id) => {
+            // Save current conversation before switching
+            if let (Some(database), Some(current_id)) =
+                (&state.database, state.selected_conversation)
+            {
+                if let Some(conversation) = state
+                    .conversations
+                    .iter()
+                    .find(|conversation| conversation.id == current_id)
+                {
+                    let db_clone = database.clone();
+                    let id = conversation.id;
+                    let title = conversation.title.clone();
+                    let content = state.editor_content.text();
+
+                    let save_task = Task::perform(
+                        async move {
+                            db_clone
+                                .update_conversation(id, &title, &content)
+                                .await
+                                .ok();
+                        },
+                        |_| Message::ConversationSaved,
+                    );
+
+                    // Load the selected conversation content
+                    state.selected_conversation = Some(selected_id);
+                    if state
+                        .conversations
+                        .iter()
+                        .any(|conv| conv.id == selected_id)
+                    {
+                        let db_clone2 = database.clone();
+
+                        return Task::batch(vec![
+                            save_task,
+                            Task::perform(
+                                async move {
+                                    db_clone2
+                                        .get_conversation(selected_id)
+                                        .await
+                                        .ok()
+                                        .flatten()
+                                        .map(|conv_data| conv_data.content)
+                                        .unwrap_or_default()
+                                },
+                                Message::ConversationContentLoaded,
+                            ),
+                        ]);
+                    }
+                    return save_task;
+                }
+            }
+
+            state.selected_conversation = Some(selected_id);
+            if let Some(database) = &state.database {
+                let db_clone = database.clone();
+                return Task::perform(
+                    async move {
+                        db_clone
+                            .get_conversation(selected_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(|conv_data| conv_data.content)
+                            .unwrap_or_default()
+                    },
+                    Message::ConversationContentLoaded,
+                );
+            }
         }
         Message::NewConversation => {
-            let new_id = state.conversations.len() + 1;
-            state.conversations.insert(
-                0,
-                Conversation {
-                    id: new_id,
-                    title: format!("New Conversation {}", new_id),
-                    preview: String::from("Start writing..."),
-                },
-            );
-            state.selected_conversation = Some(0);
-            state.editor_content = text_editor::Content::new();
+            if let Some(database) = &state.database {
+                let db_clone = database.clone();
+                let title = String::from("New Conversation");
+                let content = String::new();
+
+                return Task::perform(
+                    async move {
+                        let _new_id = db_clone
+                            .create_conversation(&title, &content)
+                            .await
+                            .unwrap_or(0);
+                        // Reload all conversations after creating
+                        db_clone.get_all_conversations().await.unwrap_or_default()
+                    },
+                    Message::ConversationsLoaded,
+                );
+            } else {
+                // Fallback if database not ready
+                let new_id = state.conversations.len() + 1;
+                state.conversations.insert(
+                    0,
+                    Conversation {
+                        id: new_id as i64,
+                        title: format!("New Conversation {}", new_id),
+                        preview: String::from("Start writing..."),
+                    },
+                );
+                state.selected_conversation = Some(new_id as i64);
+                state.editor_content = text_editor::Content::new();
+            }
         }
         Message::EditorAction(action) => {
             state.editor_content.perform(action);
 
-            // Run grammar checking
             let text = state.editor_content.text();
-            let dict = FstDictionary::curated();
-            let document = Document::new_markdown_default(&text, &dict);
-            state.grammar_lints = state.linter.lint(&document);
 
-            // Re-parse markdown
-            state.markdown_items = markdown::parse(&text).collect();
+            // Only run grammar checking if text actually changed (not just cursor movement)
+            if text != state.last_checked_text {
+                let document = Document::new_markdown_default(&text, &state.dict);
+                state.grammar_lints = state.linter.lint(&document);
 
-            // Update cursor position
+                // Re-parse markdown
+                state.markdown_items = markdown::parse(&text).collect();
+
+                state.last_checked_text = text;
+            }
+
+            // Always update cursor position (lightweight operation)
             state.cursor_position = calculate_cursor_position(&state.editor_content);
         }
         Message::ToggleSidebar => {
@@ -139,8 +245,81 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::ToggleErrorsPanel => {
             state.errors_panel_collapsed = !state.errors_panel_collapsed;
         }
+        Message::DatabaseInitialized(db) => {
+            state.database = Some(db);
+            // Load conversations from database
+            if let Some(database) = &state.database {
+                let db_clone = database.clone();
+                return Task::perform(
+                    async move { db_clone.get_all_conversations().await.unwrap_or_default() },
+                    Message::ConversationsLoaded,
+                );
+            }
+        }
+        Message::ConversationsLoaded(db_conversations) => {
+            // Convert database conversations to UI conversations
+            state.conversations = db_conversations
+                .iter()
+                .map(|conv| Conversation {
+                    id: conv.id,
+                    title: conv.title.clone(),
+                    preview: conv.content.chars().take(50).collect::<String>() + "...",
+                })
+                .collect();
+
+            // Load the most recently edited conversation (first due to ORDER BY updated_at DESC)
+            if !state.conversations.is_empty() {
+                state.selected_conversation = Some(state.conversations[0].id);
+                if let Some(conv) = db_conversations.first() {
+                    state.editor_content = text_editor::Content::with_text(&conv.content);
+                    state.markdown_items = markdown::parse(&conv.content).collect();
+                    state.last_checked_text = conv.content.clone();
+                    return run_grammar_check_task(state.dict.clone(), conv.content.clone());
+                }
+            }
+        }
+        Message::ConversationContentLoaded(content) => {
+            // Update editor with loaded content without touching conversations list
+            state.editor_content = text_editor::Content::with_text(&content);
+            state.markdown_items = markdown::parse(&content).collect();
+            state.last_checked_text = content.clone();
+            return run_grammar_check_task(state.dict.clone(), content);
+        }
+        Message::GrammarChecked { content, lints } => {
+            // Drop stale lint results that completed after the user changed text.
+            if state.last_checked_text == content {
+                state.grammar_lints = lints;
+            }
+        }
+        Message::Noop => {}
+        Message::ConversationSaved => {
+            // Conversation saved successfully
+        }
     }
     Task::none()
+}
+
+fn initialize_database_task() -> Task<Message> {
+    Task::perform(async { Database::new().await.ok() }, |db_opt| {
+        if let Some(db) = db_opt {
+            Message::DatabaseInitialized(db)
+        } else {
+            Message::Noop
+        }
+    })
+}
+
+fn run_grammar_check_task(dict: Arc<FstDictionary>, content: String) -> Task<Message> {
+    Task::perform(
+        async move {
+            let dict_for_doc = dict.clone();
+            let mut linter = LintGroup::new_curated(dict, Dialect::American);
+            let document = Document::new_markdown_default(&content, &dict_for_doc);
+            let lints = linter.lint(&document);
+            (content, lints)
+        },
+        |(content, lints)| Message::GrammarChecked { content, lints },
+    )
 }
 
 fn calculate_cursor_position(content: &text_editor::Content) -> (usize, usize) {
@@ -162,7 +341,11 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
     let sidebar_width = if state.sidebar_collapsed { 60 } else { 300 };
 
     // Toggle button
-    let toggle_icon = if state.sidebar_collapsed { "☰" } else { "←" };
+    let toggle_icon = if state.sidebar_collapsed {
+        "☰"
+    } else {
+        "←"
+    };
     let toggle_button = button(text(toggle_icon).size(20).align_x(Center))
         .on_press(Message::ToggleSidebar)
         .width(Fill)
@@ -228,28 +411,29 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
         })
         .collect();
 
-    let conversation_list = scrollable(column(
-        filtered_conversations
-            .iter()
-            .enumerate()
-            .map(|(index, conv)| {
-                let conv_button = button(
-                    column![
-                        text(&conv.title),
-                        text(&conv.preview).size(12).color([0.6, 0.6, 0.6]),
-                    ]
-                    .spacing(4)
-                    .padding([12, 16]),
-                )
-                .on_press(Message::ConversationSelected(index))
-                .width(Fill);
+    let conversation_list = scrollable(
+        column(
+            filtered_conversations
+                .iter()
+                .map(|conv| {
+                    let conv_button = button(
+                        column![
+                            text(&conv.title),
+                            text(&conv.preview).size(12).color([0.6, 0.6, 0.6]),
+                        ]
+                        .spacing(4)
+                        .padding([12, 16]),
+                    )
+                    .on_press(Message::ConversationSelected(conv.id))
+                    .width(Fill);
 
-                Element::from(conv_button)
-            })
-            .collect::<Vec<_>>(),
-    )
-    .spacing(4)
-    .padding([8, 12]));
+                    Element::from(conv_button)
+                })
+                .collect::<Vec<_>>(),
+        )
+        .spacing(4)
+        .padding([8, 12]),
+    );
 
     let sidebar_content = column![toggle_button, search, new_button, conversation_list].spacing(8);
 
@@ -308,11 +492,8 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
                 .padding(24);
 
             let rendered = scrollable(
-                markdown::view(
-                    &state.markdown_items,
-                    iced::Theme::TokyoNight
-                )
-                .map(Message::MarkdownLinkClicked)
+                markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
+                    .map(Message::MarkdownLinkClicked),
             )
             .height(Fill);
 
@@ -342,11 +523,8 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
         }
         ViewMode::RenderedView => {
             let rendered = scrollable(
-                markdown::view(
-                    &state.markdown_items,
-                    iced::Theme::TokyoNight
-                )
-                .map(Message::MarkdownLinkClicked)
+                markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
+                    .map(Message::MarkdownLinkClicked),
             )
             .height(Fill);
 
@@ -359,9 +537,17 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
     };
 
     // Grammar suggestions panel
-    let panel_height = if state.errors_panel_collapsed { 40 } else { 200 };
+    let panel_height = if state.errors_panel_collapsed {
+        40
+    } else {
+        200
+    };
 
-    let toggle_icon = if state.errors_panel_collapsed { "▲" } else { "▼" };
+    let toggle_icon = if state.errors_panel_collapsed {
+        "▲"
+    } else {
+        "▼"
+    };
     let issue_count = state.grammar_lints.len();
     let status_text = if issue_count == 0 {
         "No issues found ✓".to_string()
@@ -370,9 +556,11 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
     };
 
     let panel_header = row![
-        text(status_text)
-            .size(13)
-            .color(if issue_count == 0 { [0.5, 0.8, 0.5] } else { [1.0, 0.8, 0.5] }),
+        text(status_text).size(13).color(if issue_count == 0 {
+            [0.5, 0.8, 0.5]
+        } else {
+            [1.0, 0.8, 0.5]
+        }),
         button(text(toggle_icon).size(12))
             .on_press(Message::ToggleErrorsPanel)
             .padding([4, 8])
@@ -382,9 +570,7 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
     .align_y(Center);
 
     let suggestions_panel = if state.errors_panel_collapsed {
-        container(panel_header)
-            .padding(12)
-            .width(Fill)
+        container(panel_header).padding(12).width(Fill)
     } else if state.grammar_lints.is_empty() {
         container(
             column![
@@ -393,7 +579,7 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
                     .size(12)
                     .color([0.7, 0.7, 0.7])
             ]
-            .spacing(8)
+            .spacing(8),
         )
         .padding(12)
         .width(Fill)
@@ -424,22 +610,19 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
         )
         .spacing(8);
 
-        container(
-            column![
-                panel_header,
-                scrollable(lint_list).height(Fill),
-            ]
-            .spacing(8),
-        )
-        .padding(12)
-        .width(Fill)
+        container(column![panel_header, scrollable(lint_list).height(Fill),].spacing(8))
+            .padding(12)
+            .width(Fill)
     };
 
     // Cursor position indicator
     let cursor_indicator = container(
-        text(format!("Ln {}, Col {}", state.cursor_position.0, state.cursor_position.1))
-            .size(12)
-            .color([0.6, 0.6, 0.6])
+        text(format!(
+            "Ln {}, Col {}",
+            state.cursor_position.0, state.cursor_position.1
+        ))
+        .size(12)
+        .color([0.6, 0.6, 0.6]),
     )
     .padding([4, 12])
     .align_x(iced::alignment::Horizontal::Right);
@@ -451,9 +634,7 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
             .style(|theme: &iced::Theme| {
                 let palette = theme.palette();
                 container::Style {
-                    background: Some(iced::Background::Color(
-                        palette.background.scale_alpha(0.5),
-                    )),
+                    background: Some(iced::Background::Color(palette.background.scale_alpha(0.5))),
                     border: iced::Border {
                         width: 0.0,
                         color: palette.background,
@@ -468,9 +649,7 @@ fn build_editor_area(state: &State) -> Element<'_, Message> {
             .style(|theme: &iced::Theme| {
                 let palette = theme.palette();
                 container::Style {
-                    background: Some(iced::Background::Color(
-                        palette.background.scale_alpha(0.3),
-                    )),
+                    background: Some(iced::Background::Color(palette.background.scale_alpha(0.3))),
                     border: iced::Border {
                         width: 1.0,
                         color: palette.background.scale_alpha(0.5),

@@ -443,6 +443,19 @@ fn preview(content: &str) -> String {
     text
 }
 
+fn compact_title_badge(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return String::from("--");
+    }
+
+    trimmed
+        .chars()
+        .take(2)
+        .collect::<String>()
+        .to_ascii_uppercase()
+}
+
 fn run_grammar_check_task(dict: Arc<FstDictionary>, content: String) -> Task<Message> {
     Task::perform(
         async move {
@@ -486,29 +499,53 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
         .padding(12);
 
     if state.sidebar_collapsed {
-        // Collapsed view - just toggle button and new conversation icon
+        // Collapsed view - compact controls with conversation badges.
         let plus_icon = svg(svg::Handle::from_path("assets/plus.svg"))
-            .width(24)
-            .height(24)
+            .width(20)
+            .height(20)
             .style(|_theme, _status| svg::Style {
                 color: Some(Color::WHITE),
             });
 
-        let new_button = button(container(plus_icon).center(Fill))
-            .on_press(Message::NewConversation)
-            .width(Fill)
-            .padding(12);
+        let new_button = button(
+            container(plus_icon)
+                .width(Fill)
+                .align_x(iced::alignment::Horizontal::Center),
+        )
+        .on_press(Message::NewConversation)
+        .width(Fill)
+        .height(52)
+        .padding([10, 0]);
 
-        let mode_button = button(text(if state.selected_in_trash { "T" } else { "C" }).size(16))
-            .on_press(if state.selected_in_trash {
-                Message::ShowConversations
-            } else {
-                Message::ShowTrash
-            })
-            .width(Fill)
-            .padding(12);
+        let source_conversations = if state.selected_in_trash {
+            &state.trashed_conversations
+        } else {
+            &state.conversations
+        };
 
-        let sidebar_content = column![toggle_button, mode_button, new_button].spacing(8);
+        let compact_list = scrollable(
+            column(
+                source_conversations
+                    .iter()
+                    .map(|conv| {
+                        let badge = compact_title_badge(&conv.title);
+                        button(text(badge).size(18).align_x(Center))
+                            .on_press(Message::ConversationSelected(conv.id))
+                            .style(if state.selected_conversation == Some(conv.id) {
+                                button::primary
+                            } else {
+                                button::secondary
+                            })
+                            .width(Fill)
+                            .padding([14, 8])
+                            .into()
+                    })
+                    .collect::<Vec<Element<'_, Message>>>(),
+            )
+            .spacing(8),
+        );
+
+        let sidebar_content = column![toggle_button, new_button, compact_list].spacing(8);
 
         return container(sidebar_content)
             .width(sidebar_width)

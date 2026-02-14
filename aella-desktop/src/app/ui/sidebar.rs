@@ -1,4 +1,5 @@
 use crate::app::types::{Message, State};
+use crate::app::ui::styles::tooltip_container_style;
 use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, tooltip};
 use iced::{Center, Color, Element, Fill};
 
@@ -241,20 +242,4 @@ fn compact_title_badge(title: &str) -> String {
         .take(2)
         .collect::<String>()
         .to_ascii_uppercase()
-}
-
-fn tooltip_container_style(theme: &iced::Theme) -> container::Style {
-    let palette = theme.palette();
-    container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.08, 0.09, 0.12, 0.97,
-        ))),
-        text_color: Some(Color::WHITE),
-        border: iced::Border {
-            width: 1.0,
-            color: palette.background.scale_alpha(0.75),
-            radius: 6.0.into(),
-        },
-        ..Default::default()
-    }
 }

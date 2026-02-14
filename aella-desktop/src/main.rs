@@ -10,6 +10,8 @@ use iced::widget::{
 use iced::{Center, Color, Element, Fill, Task};
 use std::sync::Arc;
 
+const PLUS_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/plus.svg");
+
 fn main() -> iced::Result {
     iced::application(
         || (State::default(), initialize_database_task()),
@@ -500,7 +502,7 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
 
     if state.sidebar_collapsed {
         // Collapsed view - compact controls with conversation badges.
-        let plus_icon = svg(svg::Handle::from_path("assets/plus.svg"))
+        let plus_icon = svg(PLUS_ICON_PATH)
             .width(20)
             .height(20)
             .style(|_theme, _status| svg::Style {
@@ -559,7 +561,7 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
         .on_input(Message::SearchChanged)
         .padding(12);
 
-    let plus_icon = svg(svg::Handle::from_path("assets/plus.svg"))
+    let plus_icon = svg(PLUS_ICON_PATH)
         .width(20)
         .height(20)
         .style(|_theme, _status| svg::Style {

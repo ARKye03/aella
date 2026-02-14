@@ -1,8 +1,18 @@
-use iced::widget::{button, column, container, row, scrollable, svg, text, text_editor, text_input};
+use harper_core::linting::{LintGroup, Linter};
+use harper_core::spell::FstDictionary;
+use harper_core::{Dialect, Document};
+use iced::widget::{button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input};
 use iced::{Center, Color, Element, Fill, Task};
 
 fn main() -> iced::Result {
     iced::run(update, view)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ViewMode {
+    RawCode,
+    BothViews,
+    RenderedView,
 }
 
 struct State {
@@ -11,10 +21,23 @@ struct State {
     selected_conversation: Option<usize>,
     editor_content: text_editor::Content,
     sidebar_collapsed: bool,
+    linter: LintGroup,
+    grammar_lints: Vec<harper_core::linting::Lint>,
+    view_mode: ViewMode,
+    markdown_items: Vec<markdown::Item>,
 }
 
 impl Default for State {
     fn default() -> Self {
+        let dict = FstDictionary::curated();
+        let linter = LintGroup::new_curated(dict, Dialect::American);
+
+        let initial_text = "# Welcome to Aella\n\n\
+                Start typing to check your grammar in real-time.\n\n\
+                This is a markdown editor with built-in grammar checking powered by Harper.";
+
+        let markdown_items: Vec<markdown::Item> = markdown::parse(initial_text).collect();
+
         Self {
             search_query: String::new(),
             conversations: vec![
@@ -35,12 +58,12 @@ impl Default for State {
                 },
             ],
             selected_conversation: Some(0),
-            editor_content: text_editor::Content::with_text(
-                "# Welcome to Aella\n\n\
-                Start typing to check your grammar in real-time.\n\n\
-                This is a markdown editor with built-in grammar checking powered by Harper.",
-            ),
+            editor_content: text_editor::Content::with_text(initial_text),
             sidebar_collapsed: false,
+            linter,
+            grammar_lints: Vec::new(),
+            view_mode: ViewMode::BothViews,
+            markdown_items,
         }
     }
 }
@@ -59,6 +82,8 @@ enum Message {
     NewConversation,
     EditorAction(text_editor::Action),
     ToggleSidebar,
+    SetViewMode(ViewMode),
+    MarkdownLinkClicked(markdown::Uri),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -84,9 +109,24 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::EditorAction(action) => {
             state.editor_content.perform(action);
+
+            // Run grammar checking
+            let text = state.editor_content.text();
+            let dict = FstDictionary::curated();
+            let document = Document::new_markdown_default(&text, &dict);
+            state.grammar_lints = state.linter.lint(&document);
+
+            // Re-parse markdown
+            state.markdown_items = markdown::parse(&text).collect();
         }
         Message::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
+        }
+        Message::SetViewMode(mode) => {
+            state.view_mode = mode;
+        }
+        Message::MarkdownLinkClicked(_url) => {
+            // Handle markdown link clicks if needed
         }
     }
     Task::none()
@@ -94,9 +134,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
 
 fn view(state: &State) -> Element<'_, Message> {
     let sidebar = build_sidebar(state);
-    let editor = build_editor(state);
+    let editor_area = build_editor_area(state);
 
-    let content = row![sidebar, editor].spacing(0);
+    let content = row![sidebar, editor_area].spacing(0);
 
     container(content).width(Fill).height(Fill).into()
 }
@@ -203,11 +243,190 @@ fn build_sidebar(state: &State) -> Element<'_, Message> {
         .into()
 }
 
-fn build_editor(state: &State) -> Element<'_, Message> {
-    let editor = text_editor(&state.editor_content)
-        .on_action(Message::EditorAction)
-        .height(Fill)
-        .padding(24);
+fn build_editor_area(state: &State) -> Element<'_, Message> {
+    // View mode buttons
+    let mode_buttons = row![
+        button(text("Raw Code").size(13))
+            .on_press(Message::SetViewMode(ViewMode::RawCode))
+            .padding([6, 12])
+            .style(if state.view_mode == ViewMode::RawCode {
+                button::primary
+            } else {
+                button::secondary
+            }),
+        button(text("Both Views").size(13))
+            .on_press(Message::SetViewMode(ViewMode::BothViews))
+            .padding([6, 12])
+            .style(if state.view_mode == ViewMode::BothViews {
+                button::primary
+            } else {
+                button::secondary
+            }),
+        button(text("Rendered").size(13))
+            .on_press(Message::SetViewMode(ViewMode::RenderedView))
+            .padding([6, 12])
+            .style(if state.view_mode == ViewMode::RenderedView {
+                button::primary
+            } else {
+                button::secondary
+            }),
+    ]
+    .spacing(8)
+    .padding([12, 16]);
 
-    container(editor).width(Fill).height(Fill).into()
+    // Editor content based on view mode
+    let editor_content: Element<'_, Message> = match state.view_mode {
+        ViewMode::RawCode => {
+            let editor = text_editor(&state.editor_content)
+                .on_action(Message::EditorAction)
+                .height(Fill)
+                .padding(24);
+
+            container(editor).width(Fill).height(Fill).into()
+        }
+        ViewMode::BothViews => {
+            let editor = text_editor(&state.editor_content)
+                .on_action(Message::EditorAction)
+                .height(Fill)
+                .padding(24);
+
+            let rendered = scrollable(
+                markdown::view(
+                    &state.markdown_items,
+                    iced::Theme::TokyoNight
+                )
+                .map(Message::MarkdownLinkClicked)
+            )
+            .height(Fill);
+
+            row![
+                container(editor).width(Fill).height(Fill),
+                container(rendered)
+                    .width(Fill)
+                    .height(Fill)
+                    .padding(24)
+                    .style(|theme: &iced::Theme| {
+                        let palette = theme.palette();
+                        container::Style {
+                            background: Some(iced::Background::Color(
+                                palette.background.scale_alpha(0.3),
+                            )),
+                            border: iced::Border {
+                                width: 1.0,
+                                color: palette.background.scale_alpha(0.5),
+                                radius: 0.0.into(),
+                            },
+                            ..Default::default()
+                        }
+                    })
+            ]
+            .spacing(0)
+            .into()
+        }
+        ViewMode::RenderedView => {
+            let rendered = scrollable(
+                markdown::view(
+                    &state.markdown_items,
+                    iced::Theme::TokyoNight
+                )
+                .map(Message::MarkdownLinkClicked)
+            )
+            .height(Fill);
+
+            container(rendered)
+                .width(Fill)
+                .height(Fill)
+                .padding(24)
+                .into()
+        }
+    };
+
+    // Grammar suggestions panel
+    let suggestions_panel = if state.grammar_lints.is_empty() {
+        container(
+            text("No grammar issues found! ✓")
+                .size(14)
+                .color([0.5, 0.8, 0.5]),
+        )
+        .padding(16)
+        .width(Fill)
+    } else {
+        let lint_list = column(
+            state
+                .grammar_lints
+                .iter()
+                .take(10) // Show max 10 suggestions
+                .map(|lint| {
+                    let message = lint.message.clone();
+                    let suggestion_text = if let Some(suggestion) = lint.suggestions.first() {
+                        format!("→ {}", suggestion)
+                    } else {
+                        String::from("(no suggestion)")
+                    };
+
+                    Element::from(
+                        column![
+                            text(message).size(13).color([1.0, 0.7, 0.7]),
+                            text(suggestion_text).size(12).color([0.7, 0.7, 0.7]),
+                        ]
+                        .spacing(4)
+                        .padding([8, 12]),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+        .spacing(8);
+
+        container(
+            column![
+                text(format!("{} issue(s) found", state.grammar_lints.len()))
+                    .size(14)
+                    .color([1.0, 0.8, 0.5]),
+                scrollable(lint_list).height(Fill),
+            ]
+            .spacing(12),
+        )
+        .padding(16)
+        .width(Fill)
+    };
+
+    // Combine mode buttons, editor content, and suggestions in a column
+    let full_editor_area = column![
+        container(mode_buttons)
+            .width(Fill)
+            .style(|theme: &iced::Theme| {
+                let palette = theme.palette();
+                container::Style {
+                    background: Some(iced::Background::Color(
+                        palette.background.scale_alpha(0.5),
+                    )),
+                    border: iced::Border {
+                        width: 0.0,
+                        color: palette.background,
+                        radius: 0.0.into(),
+                    },
+                    ..Default::default()
+                }
+            }),
+        container(editor_content).height(Fill),
+        container(suggestions_panel)
+            .height(200)
+            .style(|theme: &iced::Theme| {
+                let palette = theme.palette();
+                container::Style {
+                    background: Some(iced::Background::Color(
+                        palette.background.scale_alpha(0.3),
+                    )),
+                    border: iced::Border {
+                        width: 1.0,
+                        color: palette.background.scale_alpha(0.5),
+                        radius: 0.0.into(),
+                    },
+                    ..Default::default()
+                }
+            })
+    ]
+    .spacing(0);
+
+    container(full_editor_area).width(Fill).height(Fill).into()
 }

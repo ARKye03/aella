@@ -79,23 +79,8 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     .padding([12, 16]);
 
     let editor_content: Element<'_, Message> = match state.view_mode {
-        ViewMode::RawCode => {
-            let highlight_settings =
-                build_lint_highlight_settings(&state.editor_content.text(), &state.grammar_lints);
-            let editor = text_editor(&state.editor_content)
-                .on_action(Message::EditorAction)
-                .highlight_with::<LintHighlighter>(highlight_settings, lint_highlight_format)
-                .height(Fill)
-                .padding(24);
-
-            container(editor).width(Fill).height(Fill).into()
-        }
+        ViewMode::RawCode => build_raw_editor(state),
         ViewMode::BothViews => {
-            let editor = text_editor(&state.editor_content)
-                .on_action(Message::EditorAction)
-                .height(Fill)
-                .padding(24);
-
             let rendered = scrollable(
                 markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
                     .map(Message::MarkdownLinkClicked),
@@ -103,7 +88,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             .height(Fill);
 
             row![
-                container(editor).width(Fill).height(Fill),
+                build_raw_editor(state),
                 container(rendered)
                     .width(Fill)
                     .height(Fill)
@@ -244,6 +229,18 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     .spacing(0);
 
     container(full_editor_area).width(Fill).height(Fill).into()
+}
+
+fn build_raw_editor(state: &State) -> Element<'_, Message> {
+    let highlight_settings =
+        build_lint_highlight_settings(&state.editor_content.text(), &state.grammar_lints);
+    let editor = text_editor(&state.editor_content)
+        .on_action(Message::EditorAction)
+        .highlight_with::<LintHighlighter>(highlight_settings, lint_highlight_format)
+        .height(Fill)
+        .padding(24);
+
+    container(editor).width(Fill).height(Fill).into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

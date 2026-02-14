@@ -12,12 +12,12 @@ Aella is a grammar checking application built on harper-core (private grammar ch
 
 ## Architecture
 
-### Workspace Structure (Planned)
-The project will use a Cargo workspace with two crates:
+### Workspace Structure
+The project uses a Cargo workspace with two crates:
 - `aella-desktop`: iced GUI application with markdown editor, grammar checking, and sidebar navigation
 - `aella-cli`: CLI tool for grammar checking
 
-Both crates share core functionality through harper-core.
+Both crates share core functionality through harper-core. Workspace dependencies are defined in the root `Cargo.toml`.
 
 ### Key Components
 - **Grammar Engine**: harper-core handles all grammar checking logic
@@ -83,3 +83,5 @@ Turso requires async operations. All database calls should be wrapped in tokio a
 
 ### skim Integration
 skim provides a fuzzy finder that works well for filtering lists. In the sidebar, it should filter conversation titles/previews as the user types in the search input.
+
+**Important**: skim is used as a library with `default-features = false`. The `nightly-frizbee` feature requires nightly Rust, so it's disabled. The default fuzzy matching algorithm works on stable Rust.

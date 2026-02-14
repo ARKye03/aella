@@ -16,12 +16,21 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
+                trashed_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )"#,
             (),
         )
         .await?;
+
+        // Lightweight migration for older local DBs.
+        let _ = conn
+            .execute(
+                "ALTER TABLE conversations ADD COLUMN trashed_at DATETIME",
+                (),
+            )
+            .await;
 
         Ok(Self { conn })
     }
@@ -77,7 +86,37 @@ impl Database {
         let mut rows = self
             .conn
             .query(
-                "SELECT id, title, content FROM conversations ORDER BY updated_at DESC",
+                "SELECT id, title, content FROM conversations WHERE trashed_at IS NULL ORDER BY updated_at DESC",
+                (),
+            )
+            .await?;
+
+        let mut conversations = Vec::new();
+
+        while let Some(row) = rows.next().await? {
+            conversations.push(ConversationData {
+                id: row.get_value(0)?.as_integer().copied().unwrap_or(0),
+                title: row
+                    .get_value(1)?
+                    .as_text()
+                    .unwrap_or(&String::new())
+                    .clone(),
+                content: row
+                    .get_value(2)?
+                    .as_text()
+                    .unwrap_or(&String::new())
+                    .clone(),
+            });
+        }
+
+        Ok(conversations)
+    }
+
+    pub async fn get_trashed_conversations(&self) -> Result<Vec<ConversationData>> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id, title, content FROM conversations WHERE trashed_at IS NOT NULL ORDER BY trashed_at DESC",
                 (),
             )
             .await?;
@@ -117,6 +156,28 @@ impl Database {
     pub async fn delete_conversation(&self, id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM conversations WHERE id = ?1", (id,))
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn trash_conversation(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE conversations SET trashed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+                (id,),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn restore_conversation(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE conversations SET trashed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+                (id,),
+            )
             .await?;
 
         Ok(())

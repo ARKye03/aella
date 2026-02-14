@@ -6,6 +6,7 @@ use harper_core::{Dialect, Document};
 use iced::Task;
 use iced::widget::{markdown, text_editor};
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -364,10 +365,18 @@ fn apply_all_suggestions(state: &mut State) {
         let document = Document::new_markdown_default(&content, &state.dict);
         let lints = state.linter.lint(&document);
 
-        let mut edits = lints
-            .iter()
-            .filter_map(|lint| lint.suggestions.first().map(|s| (lint.span, s.clone())))
-            .collect::<Vec<_>>();
+        // Keep only one suggestion per exact lint span.
+        let mut seen_spans = HashSet::new();
+        let mut edits = Vec::new();
+        for lint in &lints {
+            let Some(suggestion) = lint.suggestions.first() else {
+                continue;
+            };
+            let key = (lint.span.start, lint.span.end);
+            if seen_spans.insert(key) {
+                edits.push((lint.span, suggestion.clone()));
+            }
+        }
 
         if edits.is_empty() {
             break;

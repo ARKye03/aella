@@ -344,7 +344,7 @@ fn build_lint_highlight_settings(text: &str, lints: &[Lint]) -> LintHighlightSet
 }
 
 fn is_app_shortcut_keypress(key_press: &text_editor::KeyPress) -> bool {
-    if !key_press.modifiers.command() {
+    if !primary_shortcut_modifier_pressed(key_press.modifiers) {
         return false;
     }
 
@@ -353,8 +353,7 @@ fn is_app_shortcut_keypress(key_press: &text_editor::KeyPress) -> bool {
         .to_latin(key_press.physical_key)
         .map(|c| c.to_ascii_lowercase())
     {
-        return matches!(character, 'f' | 'b' | 'n' | '1' | '2' | '3' | '?')
-            || (character == '/' && key_press.modifiers.shift());
+        return matches!(character, 'f' | 'b' | 'n' | 'k' | '1' | '2' | '3');
     }
 
     matches!(
@@ -362,10 +361,12 @@ fn is_app_shortcut_keypress(key_press: &text_editor::KeyPress) -> bool {
         keyboard::key::Physical::Code(keyboard::key::Code::Digit1)
             | keyboard::key::Physical::Code(keyboard::key::Code::Digit2)
             | keyboard::key::Physical::Code(keyboard::key::Code::Digit3)
-    ) || (matches!(
-        key_press.physical_key,
-        keyboard::key::Physical::Code(keyboard::key::Code::Slash)
-    ) && key_press.modifiers.shift())
+            | keyboard::key::Physical::Code(keyboard::key::Code::KeyK)
+    )
+}
+
+fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
+    modifiers.logo() || modifiers.control()
 }
 
 fn lint_highlight_format(

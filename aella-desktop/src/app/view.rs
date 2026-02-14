@@ -1,7 +1,7 @@
 use crate::app::types::{Message, State};
 use crate::app::ui::styles::{modal_backdrop_style, modal_card_style};
 use crate::app::ui::{editor::build_editor_area, sidebar::build_sidebar};
-use iced::widget::{button, column, container, opaque, row, stack, text};
+use iced::widget::{button, column, container, mouse_area, opaque, row, stack, text};
 use iced::{Element, Fill};
 
 pub(crate) fn view(state: &State) -> Element<'_, Message> {
@@ -28,7 +28,7 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
         (format!("{modifier} + B"), "Toggle sidebar"),
         (format!("{modifier} + Shift + B"), "Toggle issues panel"),
         (format!("{modifier} + N"), "New conversation"),
-        (format!("{modifier} + ?"), "Show/hide this help"),
+        (format!("{modifier} + K"), "Show/hide this help"),
         ("Esc".to_string(), "Close shortcut help"),
     ];
 
@@ -64,10 +64,23 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
     .padding(20)
     .style(modal_card_style);
 
-    let overlay = container(container(modal).center_x(Fill).center_y(Fill))
+    let centered_modal = container(mouse_area(modal).on_press(Message::Noop))
+        .center_x(Fill)
+        .center_y(Fill)
         .width(Fill)
-        .height(Fill)
-        .style(modal_backdrop_style);
+        .height(Fill);
+
+    let overlay = mouse_area(
+        container(centered_modal)
+            .width(Fill)
+            .height(Fill)
+            .style(modal_backdrop_style),
+    )
+    .on_press(Message::ToggleShortcutsHelp);
+
+    let overlay = container(overlay)
+        .width(Fill)
+        .height(Fill);
 
     stack(vec![base.into(), opaque(overlay)])
         .width(Fill)

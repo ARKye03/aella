@@ -33,13 +33,12 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
-            if !modifiers.command() {
+            if !primary_shortcut_modifier_pressed(modifiers) {
                 return Task::none();
             }
 
-            if is_shortcuts_help_shortcut(key.to_latin(physical_key), physical_key, modifiers) {
-                remove_shortcut_text_input_artifact(state, '?');
-                remove_shortcut_text_input_artifact(state, '/');
+            if is_shortcuts_help_shortcut(key.to_latin(physical_key), physical_key) {
+                remove_shortcut_text_input_artifact(state, 'k');
                 state.shortcuts_help_open = !state.shortcuts_help_open;
                 return Task::none();
             }
@@ -442,11 +441,13 @@ fn key_matches_digit(physical_key: Physical) -> bool {
 fn is_shortcuts_help_shortcut(
     key_char: Option<char>,
     physical_key: Physical,
-    modifiers: keyboard::Modifiers,
 ) -> bool {
-    matches!(key_char, Some('?'))
-        || (matches!(key_char, Some('/')) && modifiers.shift())
-        || matches!(physical_key, Physical::Code(keyboard::key::Code::Slash) if modifiers.shift())
+    matches!(key_char.map(|c| c.to_ascii_lowercase()), Some('k'))
+        || matches!(physical_key, Physical::Code(keyboard::key::Code::KeyK))
+}
+
+fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
+    modifiers.logo() || modifiers.control()
 }
 
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {

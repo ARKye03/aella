@@ -35,6 +35,7 @@ pub(crate) struct State {
     pub(crate) markdown_items: Vec<markdown::Item>,
     pub(crate) cursor_position: (usize, usize), // (line, column)
     pub(crate) errors_panel_collapsed: bool,
+    pub(crate) shortcuts_help_open: bool,
     pub(crate) database: Option<Database>,
     pub(crate) dict: Arc<FstDictionary>, // Reuse dictionary instead of creating on every keystroke
     pub(crate) last_checked_text: String, // Track last text to avoid redundant grammar checks
@@ -66,6 +67,7 @@ impl Default for State {
             markdown_items,
             cursor_position: (1, 1),
             errors_panel_collapsed: false,
+            shortcuts_help_open: false,
             database: None,
             dict,
             last_checked_text: initial_text.to_string(),
@@ -93,6 +95,7 @@ pub(crate) enum Message {
     SetViewMode(ViewMode),
     MarkdownLinkClicked(markdown::Uri),
     ToggleErrorsPanel,
+    ToggleShortcutsHelp,
     DatabaseInitialized(Database),
     ConversationsLoaded(Vec<ConversationData>),
     TrashedConversationsLoaded(Vec<ConversationData>),

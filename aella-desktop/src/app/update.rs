@@ -5,6 +5,7 @@ use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
 use iced::keyboard;
+use iced::keyboard::Key;
 use iced::keyboard::key::Physical;
 use iced::Task;
 use iced::widget::{markdown, operation, text_editor};
@@ -21,7 +22,25 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             repeat,
             ..
         }) => {
-            if repeat || !modifiers.command() {
+            if repeat {
+                return Task::none();
+            }
+
+            if state.shortcuts_help_open
+                && matches!(key, Key::Named(keyboard::key::Named::Escape))
+            {
+                state.shortcuts_help_open = false;
+                return Task::none();
+            }
+
+            if !modifiers.command() {
+                return Task::none();
+            }
+
+            if is_shortcuts_help_shortcut(key.to_latin(physical_key), physical_key, modifiers) {
+                remove_shortcut_text_input_artifact(state, '?');
+                remove_shortcut_text_input_artifact(state, '/');
+                state.shortcuts_help_open = !state.shortcuts_help_open;
                 return Task::none();
             }
 
@@ -225,6 +244,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::ToggleErrorsPanel => {
             state.errors_panel_collapsed = !state.errors_panel_collapsed;
         }
+        Message::ToggleShortcutsHelp => {
+            state.shortcuts_help_open = !state.shortcuts_help_open;
+        }
         Message::DatabaseInitialized(db) => {
             state.database = Some(db);
             return refresh_lists_task(state);
@@ -415,6 +437,16 @@ fn key_matches_digit(physical_key: Physical) -> bool {
             | Physical::Code(keyboard::key::Code::Digit2)
             | Physical::Code(keyboard::key::Code::Digit3)
     )
+}
+
+fn is_shortcuts_help_shortcut(
+    key_char: Option<char>,
+    physical_key: Physical,
+    modifiers: keyboard::Modifiers,
+) -> bool {
+    matches!(key_char, Some('?'))
+        || (matches!(key_char, Some('/')) && modifiers.shift())
+        || matches!(physical_key, Physical::Code(keyboard::key::Code::Slash) if modifiers.shift())
 }
 
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {

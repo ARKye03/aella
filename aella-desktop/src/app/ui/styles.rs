@@ -50,3 +50,28 @@ pub(crate) fn tooltip_container_style(theme: &iced::Theme) -> container::Style {
         ..Default::default()
     }
 }
+
+pub(crate) fn modal_backdrop_style(_theme: &iced::Theme) -> container::Style {
+    container::Style {
+        background: Some(iced::Background::Color(Color::from_rgba(
+            0.02, 0.03, 0.05, 0.78,
+        ))),
+        ..Default::default()
+    }
+}
+
+pub(crate) fn modal_card_style(theme: &iced::Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(iced::Background::Color(Color::from_rgba(
+            0.10, 0.12, 0.17, 0.98,
+        ))),
+        text_color: Some(Color::WHITE),
+        border: iced::Border {
+            width: 1.0,
+            color: palette.primary.scale_alpha(0.45),
+            radius: 12.0.into(),
+        },
+        ..Default::default()
+    }
+}

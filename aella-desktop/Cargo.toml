@@ -11,3 +11,14 @@ tokio = { workspace = true }
 turso = { workspace = true }
 dirs = { workspace = true }
 iced_core = "0.14.0"
+image = "0.25.9"
+
+[package.metadata.bundle]
+name = "Aella"
+identifier = "com.arkye03.aella"
+icon = [
+    "assets/aella.icns",
+    "assets/aellaWindowsIcon.ico",
+]
+short_description = "Aella grammar checker"
+category = "Productivity"

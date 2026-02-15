@@ -56,16 +56,10 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
     let modal_padding = (14.0 + (transition * 6.0)) as u16;
     let modal_y_offset = ((1.0 - transition) * 22.0) as u16;
 
-    let modal = container(
-        column![
-            text("Keyboard Shortcuts").size(24),
-            shortcut_list
-        ]
-        .spacing(16),
-    )
-    .max_width(modal_width)
-    .padding(modal_padding)
-    .style(modal_card_style_with_alpha(transition));
+    let modal = container(column![text("Keyboard Shortcuts").size(24), shortcut_list].spacing(16))
+        .max_width(modal_width)
+        .padding(modal_padding)
+        .style(modal_card_style_with_alpha(transition));
 
     let centered_modal = container(mouse_area(modal).on_press(Message::Noop))
         .center_x(Fill)
@@ -82,9 +76,7 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
     )
     .on_press(Message::CloseShortcutsHelp);
 
-    let overlay = container(overlay)
-        .width(Fill)
-        .height(Fill);
+    let overlay = container(overlay).width(Fill).height(Fill);
 
     stack(vec![base.into(), opaque(overlay)])
         .width(Fill)

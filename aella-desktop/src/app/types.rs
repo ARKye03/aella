@@ -1,12 +1,14 @@
 use crate::db::{ConversationData, Database};
 use harper_core::Dialect;
-use harper_core::linting::LintGroup;
+use harper_core::Document;
+use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
 use iced::keyboard;
 use iced::widget::{markdown, text_editor};
 use iced_core::animation::{Animation, Easing};
-use std::time::Instant;
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ViewMode {
@@ -20,6 +22,8 @@ pub(crate) struct Conversation {
     pub(crate) id: i64,
     pub(crate) title: String,
     pub(crate) preview: String,
+    pub(crate) title_search: String,
+    pub(crate) preview_search: String,
 }
 
 pub(crate) struct State {
@@ -43,17 +47,22 @@ pub(crate) struct State {
     pub(crate) database: Option<Database>,
     pub(crate) dict: Arc<FstDictionary>, // Reuse dictionary instead of creating on every keystroke
     pub(crate) last_checked_text: String, // Track last text to avoid redundant grammar checks
+    pub(crate) autosave_generation: u64,
+    pub(crate) grammar_check_generation: u64,
+    pub(crate) markdown_dirty: bool,
+    pub(crate) dismissed_lint_keys: HashSet<u64>,
 }
 
 impl Default for State {
     fn default() -> Self {
         let dict = FstDictionary::curated();
-        let linter = LintGroup::new_curated(dict.clone(), Dialect::American);
-
+        let mut linter = LintGroup::new_curated(dict.clone(), Dialect::American);
         let initial_text = "# Welcome to Aella\n\n\
                 Start typing to check your grammar in real-time.\n\n\
                 This is a markdown editor with built-in grammar checking powered by Harper.";
 
+        let initial_document = Document::new_markdown_default(initial_text, &dict);
+        let grammar_lints = linter.lint(&initial_document);
         let markdown_items: Vec<markdown::Item> = markdown::parse(initial_text).collect();
 
         Self {
@@ -67,7 +76,7 @@ impl Default for State {
             editor_content: text_editor::Content::with_text(initial_text),
             sidebar_collapsed: false,
             linter,
-            grammar_lints: Vec::new(),
+            grammar_lints,
             view_mode: ViewMode::BothViews,
             markdown_items,
             cursor_position: (1, 1),
@@ -79,6 +88,10 @@ impl Default for State {
             database: None,
             dict,
             last_checked_text: initial_text.to_string(),
+            autosave_generation: 0,
+            grammar_check_generation: 0,
+            markdown_dirty: false,
+            dismissed_lint_keys: HashSet::new(),
         }
     }
 }
@@ -97,6 +110,7 @@ pub(crate) enum Message {
     RestoreConversation(i64),
     DeleteConversationPermanently(i64),
     ApplyLintSuggestion(usize),
+    DismissLint(usize),
     ApplyAllSuggestions,
     EditorAction(text_editor::Action),
     ToggleSidebar,
@@ -110,6 +124,11 @@ pub(crate) enum Message {
     TrashedConversationsLoaded(Vec<ConversationData>),
     ConversationDataLoaded(ConversationData),
     RefreshLists,
+    AutosaveDue(u64),
+    GrammarCheckDebounced {
+        generation: u64,
+        content: String,
+    },
     GrammarChecked {
         content: String,
         lints: Vec<harper_core::linting::Lint>,

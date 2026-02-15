@@ -203,16 +203,30 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             .width(Fill)
     };
 
-    let cursor_indicator = container(
-        text(format!(
-            "Ln {}, Col {}",
-            state.cursor_position.0, state.cursor_position.1
-        ))
+    let shortcut_modifier = if cfg!(target_os = "macos") {
+        "Cmd"
+    } else {
+        "Ctrl"
+    };
+    let shortcuts_hint = text(format!("Press {shortcut_modifier} + K to show shortcuts"))
         .size(12)
-        .color([0.6, 0.6, 0.6]),
+        .color([0.6, 0.6, 0.6]);
+    let cursor_text = text(format!(
+        "Ln {}, Col {}",
+        state.cursor_position.0, state.cursor_position.1
+    ))
+    .size(12)
+    .color([0.6, 0.6, 0.6]);
+
+    let footer = container(
+        row![
+            shortcuts_hint,
+            container(cursor_text).width(Fill).align_x(iced::alignment::Horizontal::Right)
+        ]
+        .align_y(iced::Center)
+        .spacing(12),
     )
-    .padding([4, 12])
-    .align_x(iced::alignment::Horizontal::Right);
+    .padding([4, 12]);
 
     let full_editor_area = column![
         container(title_bar)
@@ -225,7 +239,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         container(suggestions_panel)
             .height(panel_height)
             .style(|theme: &iced::Theme| outlined_container_bg(theme, 0.3, 0.5)),
-        cursor_indicator,
+        footer,
     ]
     .spacing(0);
 

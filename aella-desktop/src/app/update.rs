@@ -26,10 +26,12 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
+            state.now = std::time::Instant::now();
+
             if state.shortcuts_help_open
                 && matches!(key, Key::Named(keyboard::key::Named::Escape))
             {
-                state.shortcuts_help_open = false;
+                set_shortcuts_help_open(state, false);
                 return Task::none();
             }
 
@@ -39,7 +41,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 
             if is_shortcuts_help_shortcut(key.to_latin(physical_key), physical_key) {
                 remove_shortcut_text_input_artifact(state, 'k');
-                state.shortcuts_help_open = !state.shortcuts_help_open;
+                set_shortcuts_help_open(state, !state.shortcuts_help_open);
                 return Task::none();
             }
 
@@ -243,8 +245,12 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::ToggleErrorsPanel => {
             state.errors_panel_collapsed = !state.errors_panel_collapsed;
         }
-        Message::ToggleShortcutsHelp => {
-            state.shortcuts_help_open = !state.shortcuts_help_open;
+        Message::CloseShortcutsHelp => {
+            state.now = std::time::Instant::now();
+            set_shortcuts_help_open(state, false);
+        }
+        Message::Tick(now) => {
+            state.now = now;
         }
         Message::DatabaseInitialized(db) => {
             state.database = Some(db);
@@ -444,6 +450,15 @@ fn is_shortcuts_help_shortcut(
 ) -> bool {
     matches!(key_char.map(|c| c.to_ascii_lowercase()), Some('k'))
         || matches!(physical_key, Physical::Code(keyboard::key::Code::KeyK))
+}
+
+fn set_shortcuts_help_open(state: &mut State, open: bool) {
+    if state.shortcuts_help_open == open {
+        return;
+    }
+
+    state.shortcuts_help_open = open;
+    state.shortcuts_help_animation.go_mut(open, state.now);
 }
 
 fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {

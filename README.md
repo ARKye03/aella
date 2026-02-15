@@ -24,18 +24,100 @@ Aella is a blazing fast grammar checking app powered by `harper-core`. Whether y
 ## The Goods
 
 - **`aella-desktop`**: The shiny GUI (built with `iced`).
-- **`aella-cli`**: For the terminal users.
+- **`aella-cli`**: For the terminal lovers. Fast, powerful, scriptable.
+- **`aella-core`**: The brains behind both, shared grammar engine and database.
 
 ## Getting Started
+
+### Desktop App
 
 Make sure you have Rust installed, then:
 
 ```bash
-# Run the desktop app
 cargo run -p aella-desktop
+```
 
-# Run the CLI
-cargo run -p aella-cli
+### CLI Usage
+
+The CLI is your quick grammar buddy for the command line. Here's everything it can do:
+
+#### Fix Text on the Fly
+
+```bash
+# Pipe in your text
+echo "I has a pen. She dont like it." | aella check
+# Output: I have a pen. She doesn't like it.
+
+# Check a file
+aella check essay.txt
+
+# Save the corrected version
+aella check draft.txt -o polished.txt
+```
+
+#### See What Changed
+
+```bash
+# Show a colorful diff
+aella check messy.txt --diff
+```
+
+Red lines show what was wrong, green lines show the fix. Simple.
+
+#### Get Machine-Readable Output
+
+```bash
+# JSON output (great for scripting)
+aella check document.txt --json
+```
+
+You get the original, corrected text, number of fixes, and how long it took.
+
+#### Process Multiple Files at Once
+
+```bash
+# Fix all markdown files
+aella check "*.md" --batch
+
+# Save them to a new folder
+aella check "*.txt" --batch -o corrected/
+```
+
+It'll cruise through each file and show you what it's doing.
+
+#### Save Your Work to History
+
+```bash
+# Store the full text in the database
+aella check important.txt --save-content
+```
+
+By default, Aella just tracks metadata (how many fixes, when you ran it). Add `--save-content` to keep the full before/after text.
+
+#### Check Your History
+
+```bash
+# See your last 20 runs
+aella history
+
+# Or show more
+aella history --limit 50
+```
+
+Every check gets logged, see what you've been fixing and when.
+
+#### Quick Reference
+
+```bash
+aella check [FILE]              # Check file or stdin
+  -o, --output FILE             # Save to file
+  --diff                        # Show changes as diff
+  --json                        # Output as JSON
+  --save-content                # Store full text in DB
+  --batch                       # Process multiple files
+
+aella history                   # Show recent runs
+  --limit N                     # Number of runs to show
 ```
 
 ### MacOS

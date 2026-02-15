@@ -298,6 +298,8 @@ impl Highlighter for LintHighlighter {
 
     fn update(&mut self, new_settings: &Self::Settings) {
         self.settings = new_settings.clone();
+        // Reset cursor whenever settings change so a fresh render starts at line 0.
+        self.current_line = 0;
     }
 
     fn change_line(&mut self, line: usize) {
@@ -321,33 +323,67 @@ impl Highlighter for LintHighlighter {
 }
 
 fn build_lint_highlight_settings(text: &str, lints: &[Lint]) -> LintHighlightSettings {
-    let line_segments = text.split('\n').collect::<Vec<_>>();
-    let mut line_starts = Vec::with_capacity(line_segments.len());
-    let mut cursor = 0usize;
-    for segment in &line_segments {
-        line_starts.push(cursor);
-        cursor += segment.chars().count() + 1;
+    #[derive(Clone, Copy)]
+    struct LineRange {
+        byte_start: usize,
+        byte_end: usize,
     }
 
-    let mut lines = vec![Vec::new(); line_segments.len().max(1)];
+    fn offset_to_byte(offset: usize, text: &str, char_to_byte: &[usize]) -> Option<usize> {
+        if offset <= text.len() && text.is_char_boundary(offset) {
+            Some(offset)
+        } else {
+            char_to_byte.get(offset).copied()
+        }
+    }
+
+    let mut char_to_byte = Vec::with_capacity(text.chars().count() + 1);
+    for (byte_index, _) in text.char_indices() {
+        char_to_byte.push(byte_index);
+    }
+    char_to_byte.push(text.len());
+
+    let mut lines_meta = Vec::new();
+    let mut line_start = 0usize;
+    for (byte_index, ch) in text.char_indices() {
+        if ch == '\n' {
+            lines_meta.push(LineRange {
+                byte_start: line_start,
+                byte_end: byte_index,
+            });
+            line_start = byte_index + ch.len_utf8();
+        }
+    }
+    lines_meta.push(LineRange {
+        byte_start: line_start,
+        byte_end: text.len(),
+    });
+
+    let mut lines = vec![Vec::new(); lines_meta.len().max(1)];
 
     for lint in lints {
         if lint.span.is_empty() {
             continue;
         }
+        let Some(start_byte) = offset_to_byte(lint.span.start, text, &char_to_byte) else {
+            continue;
+        };
+        let Some(end_byte) = offset_to_byte(lint.span.end, text, &char_to_byte) else {
+            continue;
+        };
+        if end_byte <= start_byte {
+            continue;
+        }
+
         let level = lint_level_from_kind(lint.lint_kind);
-        for (line_index, segment) in line_segments.iter().enumerate() {
-            let line_start = line_starts[line_index];
-            let line_end = line_start + segment.chars().count();
+        let start_line = lines_meta.partition_point(|line| line.byte_end <= start_byte);
+        let end_line = lines_meta.partition_point(|line| line.byte_start < end_byte);
 
-            if lint.span.end <= line_start || lint.span.start >= line_end {
-                continue;
-            }
-
-            let local_start = lint.span.start.saturating_sub(line_start);
-            let local_end = lint.span.end.min(line_end).saturating_sub(line_start);
+        for (line_index, line) in lines_meta[start_line..end_line].iter().enumerate() {
+            let local_start = start_byte.saturating_sub(line.byte_start);
+            let local_end = end_byte.min(line.byte_end).saturating_sub(line.byte_start);
             if local_start < local_end {
-                lines[line_index].push((local_start..local_end, level));
+                lines[start_line + line_index].push((local_start..local_end, level));
             }
         }
     }

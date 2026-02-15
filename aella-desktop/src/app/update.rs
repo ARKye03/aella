@@ -236,16 +236,15 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             let text = state.editor_content.text();
             let text_changed = text != text_before;
 
-            if text != state.last_checked_text {
-                let document = Document::new_markdown_default(&text, &state.dict);
-                state.grammar_lints = state.linter.lint(&document);
-                state.markdown_items = markdown::parse(&text).collect();
-                state.last_checked_text = text;
-            }
-
             state.cursor_position = calculate_cursor_position(&state.editor_content);
             if text_changed {
-                return schedule_autosave_task(state);
+                if text != state.last_checked_text {
+                    state.grammar_lints.clear();
+                }
+                return Task::batch(vec![
+                    schedule_autosave_task(state),
+                    schedule_grammar_check_task(state, text),
+                ]);
             }
         }
         Message::ToggleSidebar => {
@@ -322,6 +321,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::ConversationDataLoaded(conv) => {
+            state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
             state.current_title = conv.title;
             state.editor_content = text_editor::Content::with_text(&conv.content);
             state.markdown_items = markdown::parse(&conv.content).collect();
@@ -336,9 +336,22 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 return save_current_conversation_task(state);
             }
         }
+        Message::GrammarCheckDebounced {
+            generation,
+            content,
+        } => {
+            if generation == state.grammar_check_generation
+                && content != state.last_checked_text
+                && state.editor_content.text() == content
+            {
+                return run_grammar_check_task(state.dict.clone(), content);
+            }
+        }
         Message::GrammarChecked { content, lints } => {
-            if state.last_checked_text == content {
+            if state.editor_content.text() == content {
                 state.grammar_lints = lints;
+                state.markdown_items = markdown::parse(&content).collect();
+                state.last_checked_text = content;
             }
         }
         Message::Noop => {}
@@ -477,6 +490,7 @@ fn preview(content: &str) -> String {
 }
 
 fn clear_loaded_conversation(state: &mut State) {
+    state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
     state.selected_conversation = None;
     state.current_title = String::from("Untitled");
     state.editor_content = text_editor::Content::new();
@@ -553,6 +567,22 @@ fn schedule_autosave_task(state: &mut State) -> Task<Message> {
             generation
         },
         Message::AutosaveDue,
+    )
+}
+
+fn schedule_grammar_check_task(state: &mut State, content: String) -> Task<Message> {
+    const GRAMMAR_CHECK_DEBOUNCE: Duration = Duration::from_millis(350);
+    state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
+    let generation = state.grammar_check_generation;
+    Task::perform(
+        async move {
+            tokio::time::sleep(GRAMMAR_CHECK_DEBOUNCE).await;
+            (generation, content)
+        },
+        |(generation, content)| Message::GrammarCheckDebounced {
+            generation,
+            content,
+        },
     )
 }
 

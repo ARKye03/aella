@@ -4,14 +4,15 @@ use crate::db::Database;
 use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
+use iced::Task;
 use iced::keyboard;
 use iced::keyboard::Key;
 use iced::keyboard::key::Physical;
-use iced::Task;
 use iced::widget::{markdown, operation, text_editor};
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
@@ -28,8 +29,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 
             state.now = std::time::Instant::now();
 
-            if state.shortcuts_help_open
-                && matches!(key, Key::Named(keyboard::key::Named::Escape))
+            if state.shortcuts_help_open && matches!(key, Key::Named(keyboard::key::Named::Escape))
             {
                 set_shortcuts_help_open(state, false);
                 return Task::none();
@@ -119,6 +119,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                     conv.title = state.current_title.clone();
                 }
             }
+            return schedule_autosave_task(state);
         }
         Message::SaveTitle => {
             return save_current_conversation_task(state);
@@ -140,10 +141,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 
                 return Task::perform(
                     async move {
-                        let _new_id = db_clone
-                            .create_conversation(&title, &content)
-                            .await
-                            .unwrap_or(0);
+                        if let Err(err) = db_clone.create_conversation(&title, &content).await {
+                            eprintln!("[aella] failed to create conversation: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -184,7 +184,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 }
                 return Task::perform(
                     async move {
-                        db_clone.trash_conversation(id).await.ok();
+                        if let Err(err) = db_clone.trash_conversation(id).await {
+                            eprintln!("[aella] failed to move conversation {id} to trash: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -195,7 +197,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 let db_clone = database.clone();
                 return Task::perform(
                     async move {
-                        db_clone.restore_conversation(id).await.ok();
+                        if let Err(err) = db_clone.restore_conversation(id).await {
+                            eprintln!("[aella] failed to restore conversation {id}: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -209,7 +213,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 }
                 return Task::perform(
                     async move {
-                        db_clone.delete_conversation(id).await.ok();
+                        if let Err(err) = db_clone.delete_conversation(id).await {
+                            eprintln!("[aella] failed to delete conversation {id}: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -217,14 +223,18 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ApplyLintSuggestion(index) => {
             apply_single_suggestion(state, index);
+            return schedule_autosave_task(state);
         }
         Message::ApplyAllSuggestions => {
             apply_all_suggestions(state);
+            return schedule_autosave_task(state);
         }
         Message::EditorAction(action) => {
+            let text_before = state.editor_content.text();
             state.editor_content.perform(action);
 
             let text = state.editor_content.text();
+            let text_changed = text != text_before;
 
             if text != state.last_checked_text {
                 let document = Document::new_markdown_default(&text, &state.dict);
@@ -234,6 +244,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             }
 
             state.cursor_position = calculate_cursor_position(&state.editor_content);
+            if text_changed {
+                return schedule_autosave_task(state);
+            }
         }
         Message::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
@@ -318,6 +331,11 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::RefreshLists => {
             return refresh_lists_task(state);
         }
+        Message::AutosaveDue(generation) => {
+            if generation == state.autosave_generation {
+                return save_current_conversation_task(state);
+            }
+        }
         Message::GrammarChecked { content, lints } => {
             if state.last_checked_text == content {
                 state.grammar_lints = lints;
@@ -330,13 +348,24 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 }
 
 pub(crate) fn initialize_database_task() -> Task<Message> {
-    Task::perform(async { Database::new().await.ok() }, |db_opt| {
-        if let Some(db) = db_opt {
-            Message::DatabaseInitialized(db)
-        } else {
-            Message::Noop
-        }
-    })
+    Task::perform(
+        async {
+            match Database::new().await {
+                Ok(db) => Some(db),
+                Err(err) => {
+                    eprintln!("[aella] failed to initialize database: {err}");
+                    None
+                }
+            }
+        },
+        |db_opt| {
+            if let Some(db) = db_opt {
+                Message::DatabaseInitialized(db)
+            } else {
+                Message::Noop
+            }
+        },
+    )
 }
 
 fn save_current_conversation_task(state: &State) -> Task<Message> {
@@ -346,10 +375,12 @@ fn save_current_conversation_task(state: &State) -> Task<Message> {
         let content = state.editor_content.text();
         return Task::perform(
             async move {
-                db_clone
+                if let Err(err) = db_clone
                     .update_conversation(selected_id, &title, &content)
                     .await
-                    .ok();
+                {
+                    eprintln!("[aella] failed to save conversation {selected_id}: {err}");
+                }
             },
             |_| Message::ConversationSaved,
         );
@@ -361,7 +392,15 @@ fn load_conversation_task(state: &State, id: i64) -> Task<Message> {
     if let Some(database) = &state.database {
         let db_clone = database.clone();
         return Task::perform(
-            async move { db_clone.get_conversation(id).await.ok().flatten() },
+            async move {
+                match db_clone.get_conversation(id).await {
+                    Ok(data) => data,
+                    Err(err) => {
+                        eprintln!("[aella] failed to load conversation {id}: {err}");
+                        None
+                    }
+                }
+            },
             |conv| {
                 if let Some(data) = conv {
                     Message::ConversationDataLoaded(data)
@@ -380,15 +419,26 @@ fn refresh_lists_task(state: &State) -> Task<Message> {
         let trash_db = database.clone();
         return Task::batch(vec![
             Task::perform(
-                async move { active_db.get_all_conversations().await.unwrap_or_default() },
+                async move {
+                    match active_db.get_all_conversations().await {
+                        Ok(conversations) => conversations,
+                        Err(err) => {
+                            eprintln!("[aella] failed to load conversations: {err}");
+                            Vec::new()
+                        }
+                    }
+                },
                 Message::ConversationsLoaded,
             ),
             Task::perform(
                 async move {
-                    trash_db
-                        .get_trashed_conversations()
-                        .await
-                        .unwrap_or_default()
+                    match trash_db.get_trashed_conversations().await {
+                        Ok(conversations) => conversations,
+                        Err(err) => {
+                            eprintln!("[aella] failed to load trashed conversations: {err}");
+                            Vec::new()
+                        }
+                    }
                 },
                 Message::TrashedConversationsLoaded,
             ),
@@ -444,10 +494,7 @@ fn key_matches_digit(physical_key: Physical) -> bool {
     )
 }
 
-fn is_shortcuts_help_shortcut(
-    key_char: Option<char>,
-    physical_key: Physical,
-) -> bool {
+fn is_shortcuts_help_shortcut(key_char: Option<char>, physical_key: Physical) -> bool {
     matches!(key_char.map(|c| c.to_ascii_lowercase()), Some('k'))
         || matches!(physical_key, Physical::Code(keyboard::key::Code::KeyK))
 }
@@ -467,9 +514,13 @@ fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
 
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
     let changed_search = strip_trailing_shortcut_char(&mut state.search_query, shortcut_char);
+    if changed_search {
+        return;
+    }
+
     let changed_title = strip_trailing_shortcut_char(&mut state.current_title, shortcut_char);
 
-    if changed_search || !changed_title {
+    if !changed_title {
         return;
     }
 
@@ -490,6 +541,19 @@ fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
             conv.title = state.current_title.clone();
         }
     }
+}
+
+fn schedule_autosave_task(state: &mut State) -> Task<Message> {
+    const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1200);
+    state.autosave_generation = state.autosave_generation.saturating_add(1);
+    let generation = state.autosave_generation;
+    Task::perform(
+        async move {
+            tokio::time::sleep(AUTOSAVE_DEBOUNCE).await;
+            generation
+        },
+        Message::AutosaveDue,
+    )
 }
 
 fn strip_trailing_shortcut_char(value: &mut String, shortcut_char: char) -> bool {

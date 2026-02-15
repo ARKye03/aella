@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 harper-core = { workspace = true }
 iced = { workspace = true }
-skim = { workspace = true }
 tokio = { workspace = true }
 turso = { workspace = true }
 dirs = { workspace = true }

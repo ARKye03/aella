@@ -5,8 +5,8 @@ use harper_core::spell::FstDictionary;
 use iced::keyboard;
 use iced::widget::{markdown, text_editor};
 use iced_core::animation::{Animation, Easing};
-use std::time::Instant;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ViewMode {
@@ -43,6 +43,7 @@ pub(crate) struct State {
     pub(crate) database: Option<Database>,
     pub(crate) dict: Arc<FstDictionary>, // Reuse dictionary instead of creating on every keystroke
     pub(crate) last_checked_text: String, // Track last text to avoid redundant grammar checks
+    pub(crate) autosave_generation: u64,
 }
 
 impl Default for State {
@@ -79,6 +80,7 @@ impl Default for State {
             database: None,
             dict,
             last_checked_text: initial_text.to_string(),
+            autosave_generation: 0,
         }
     }
 }
@@ -110,6 +112,7 @@ pub(crate) enum Message {
     TrashedConversationsLoaded(Vec<ConversationData>),
     ConversationDataLoaded(ConversationData),
     RefreshLists,
+    AutosaveDue(u64),
     GrammarChecked {
         content: String,
         lints: Vec<harper_core::linting::Lint>,

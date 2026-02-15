@@ -1,6 +1,6 @@
+use crate::app::sidebar_search_input_id;
 use crate::app::types::{Message, State};
 use crate::app::ui::styles::tooltip_container_style;
-use crate::app::sidebar_search_input_id;
 use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, tooltip};
 use iced::{Center, Color, Element, Fill};
 

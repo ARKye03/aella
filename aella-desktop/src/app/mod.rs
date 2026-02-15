@@ -4,10 +4,10 @@ mod update;
 mod view;
 
 use crate::app::types::Message;
+use iced::Subscription;
 use iced::event;
 use iced::time;
 use iced::widget::Id;
-use iced::Subscription;
 use std::time::Duration;
 
 pub(crate) use types::State;

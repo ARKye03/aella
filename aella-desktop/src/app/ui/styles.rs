@@ -51,7 +51,9 @@ pub(crate) fn tooltip_container_style(theme: &iced::Theme) -> container::Style {
     }
 }
 
-pub(crate) fn modal_backdrop_style_with_alpha(alpha: f32) -> impl Fn(&iced::Theme) -> container::Style {
+pub(crate) fn modal_backdrop_style_with_alpha(
+    alpha: f32,
+) -> impl Fn(&iced::Theme) -> container::Style {
     move |_theme: &iced::Theme| container::Style {
         background: Some(iced::Background::Color(Color::from_rgba(
             0.02,
@@ -63,9 +65,7 @@ pub(crate) fn modal_backdrop_style_with_alpha(alpha: f32) -> impl Fn(&iced::Them
     }
 }
 
-pub(crate) fn modal_card_style_with_alpha(
-    alpha: f32,
-) -> impl Fn(&iced::Theme) -> container::Style {
+pub(crate) fn modal_card_style_with_alpha(alpha: f32) -> impl Fn(&iced::Theme) -> container::Style {
     move |theme: &iced::Theme| {
         let palette = theme.palette();
         container::Style {

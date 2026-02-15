@@ -221,7 +221,9 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let footer = container(
         row![
             shortcuts_hint,
-            container(cursor_text).width(Fill).align_x(iced::alignment::Horizontal::Right)
+            container(cursor_text)
+                .width(Fill)
+                .align_x(iced::alignment::Horizontal::Right)
         ]
         .align_y(iced::Center)
         .spacing(12),

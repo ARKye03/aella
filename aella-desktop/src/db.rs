@@ -38,12 +38,18 @@ impl Database {
         .await?;
 
         // Lightweight migration for older local DBs.
-        let _ = conn
+        if let Err(err) = conn
             .execute(
                 "ALTER TABLE conversations ADD COLUMN trashed_at DATETIME",
                 (),
             )
-            .await;
+            .await
+        {
+            // Existing databases already have this column.
+            if !err.to_string().contains("duplicate column name") {
+                eprintln!("[aella] migration failed when adding trashed_at column: {err}");
+            }
+        }
 
         Ok(Self { conn })
     }

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use turso::{Builder, Connection, Result};
 
+use crate::types::{CliRun, ConversationData};
+
 #[derive(Clone, Debug)]
 pub struct Database {
     conn: Connection,
@@ -55,6 +57,24 @@ impl Database {
                 eprintln!("[aella] migration failed when adding trashed_at column: {err}");
             }
         }
+
+        // Create CLI runs table
+        conn.execute(
+            r#"CREATE TABLE IF NOT EXISTS cli_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                input_source TEXT NOT NULL,
+                input_length INTEGER NOT NULL,
+                output_length INTEGER NOT NULL,
+                corrections_count INTEGER NOT NULL,
+                passes_count INTEGER NOT NULL,
+                execution_time_ms INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                original_text TEXT,
+                corrected_text TEXT
+            )"#,
+            (),
+        )
+        .await?;
 
         Ok(Self { conn })
     }
@@ -217,11 +237,86 @@ impl Database {
 
         Ok(())
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct ConversationData {
-    pub id: i64,
-    pub title: String,
-    pub content: String,
+    pub async fn create_cli_run(
+        &self,
+        input_source: &str,
+        input_length: usize,
+        output_length: usize,
+        corrections_count: usize,
+        passes_count: usize,
+        execution_time_ms: u64,
+        original_text: Option<&str>,
+        corrected_text: Option<&str>,
+    ) -> Result<i64> {
+        self.conn
+            .execute(
+                r#"INSERT INTO cli_runs
+                   (input_source, input_length, output_length, corrections_count,
+                    passes_count, execution_time_ms, original_text, corrected_text)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+                (
+                    input_source,
+                    input_length as i64,
+                    output_length as i64,
+                    corrections_count as i64,
+                    passes_count as i64,
+                    execution_time_ms as i64,
+                    original_text,
+                    corrected_text,
+                ),
+            )
+            .await?;
+
+        // Get the last inserted id
+        let mut rows = self.conn.query("SELECT last_insert_rowid()", ()).await?;
+
+        if let Some(row) = rows.next().await? {
+            let id = row.get_value(0)?;
+            Ok(*id.as_integer().unwrap_or(&0))
+        } else {
+            Ok(0)
+        }
+    }
+
+    pub async fn get_cli_runs(&self, limit: usize) -> Result<Vec<CliRun>> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id, input_source, input_length, output_length, corrections_count,
+                        passes_count, execution_time_ms, created_at, original_text, corrected_text
+                 FROM cli_runs
+                 ORDER BY created_at DESC
+                 LIMIT ?1",
+                (limit as i64,),
+            )
+            .await?;
+
+        let mut runs = Vec::new();
+
+        while let Some(row) = rows.next().await? {
+            runs.push(CliRun {
+                id: row.get_value(0)?.as_integer().copied().unwrap_or(0),
+                input_source: row
+                    .get_value(1)?
+                    .as_text()
+                    .unwrap_or(&String::new())
+                    .clone(),
+                input_length: row.get_value(2)?.as_integer().copied().unwrap_or(0),
+                output_length: row.get_value(3)?.as_integer().copied().unwrap_or(0),
+                corrections_count: row.get_value(4)?.as_integer().copied().unwrap_or(0),
+                passes_count: row.get_value(5)?.as_integer().copied().unwrap_or(0),
+                execution_time_ms: row.get_value(6)?.as_integer().copied().unwrap_or(0),
+                created_at: row
+                    .get_value(7)?
+                    .as_text()
+                    .unwrap_or(&String::new())
+                    .clone(),
+                original_text: row.get_value(8)?.as_text().map(|s| s.clone()),
+                corrected_text: row.get_value(9)?.as_text().map(|s| s.clone()),
+            });
+        }
+
+        Ok(runs)
+    }
 }

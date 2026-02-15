@@ -8,7 +8,7 @@ Aella is a grammar checking application built on harper-core (private grammar ch
 - **Desktop GUI**: iced-rs application with real-time grammar checking and markdown support
 - **CLI**: Command-line interface for grammar checking (to be implemented as separate crate)
 - **Storage**: Turso database for persisting conversations/texts
-- **Search**: skim-based fuzzy search for navigating conversations
+- **Search**: Simple search for navigating conversations
 
 ## Architecture
 
@@ -23,14 +23,14 @@ Both crates share core functionality through harper-core. Workspace dependencies
 - **Grammar Engine**: harper-core handles all grammar checking logic
 - **UI Framework**: iced with tokio async runtime, canvas, and markdown features enabled
 - **Database**: Turso for storing and retrieving conversations
-- **Search**: skim provides fuzzy finding for conversation navigation in the sidebar
+- **Search**: Simple text-based search for conversation navigation in the sidebar
 
 ### Data Flow
 1. User types text in markdown editor (desktop) or provides input (CLI)
 2. Text is processed through harper-core for grammar checking
 3. Suggestions are displayed in real-time (desktop) or as output (CLI)
 4. Conversations/texts are saved to Turso database
-5. Sidebar search uses skim to fuzzy-find through stored conversations
+5. Sidebar search uses simple text matching to filter through stored conversations
 
 ## Development Commands
 
@@ -81,7 +81,5 @@ The markdown feature is already enabled in dependencies and should be used for t
 ### Turso Integration
 Turso requires async operations. All database calls should be wrapped in tokio async context. Connection pooling and error handling are critical for reliable conversation storage.
 
-### skim Integration
-skim provides a fuzzy finder that works well for filtering lists. In the sidebar, it should filter conversation titles/previews as the user types in the search input.
-
-**Important**: skim is used as a library with `default-features = false`. The `nightly-frizbee` feature requires nightly Rust, so it's disabled. The default fuzzy matching algorithm works on stable Rust.
+### Search Implementation
+Simple text-based search filters conversations by matching search terms against conversation titles and content. The search operates on pre-normalized text fields for better performance.

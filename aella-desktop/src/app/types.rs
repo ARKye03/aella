@@ -4,6 +4,8 @@ use harper_core::linting::LintGroup;
 use harper_core::spell::FstDictionary;
 use iced::keyboard;
 use iced::widget::{markdown, text_editor};
+use iced_core::animation::{Animation, Easing};
+use std::time::Instant;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -36,6 +38,8 @@ pub(crate) struct State {
     pub(crate) cursor_position: (usize, usize), // (line, column)
     pub(crate) errors_panel_collapsed: bool,
     pub(crate) shortcuts_help_open: bool,
+    pub(crate) shortcuts_help_animation: Animation<bool>,
+    pub(crate) now: Instant,
     pub(crate) database: Option<Database>,
     pub(crate) dict: Arc<FstDictionary>, // Reuse dictionary instead of creating on every keystroke
     pub(crate) last_checked_text: String, // Track last text to avoid redundant grammar checks
@@ -53,6 +57,7 @@ impl Default for State {
         let markdown_items: Vec<markdown::Item> = markdown::parse(initial_text).collect();
 
         Self {
+            now: Instant::now(),
             search_query: String::new(),
             conversations: Vec::new(),
             trashed_conversations: Vec::new(),
@@ -68,6 +73,9 @@ impl Default for State {
             cursor_position: (1, 1),
             errors_panel_collapsed: false,
             shortcuts_help_open: false,
+            shortcuts_help_animation: Animation::new(false)
+                .duration(std::time::Duration::from_millis(180))
+                .easing(Easing::EaseOutCubic),
             database: None,
             dict,
             last_checked_text: initial_text.to_string(),
@@ -95,7 +103,8 @@ pub(crate) enum Message {
     SetViewMode(ViewMode),
     MarkdownLinkClicked(markdown::Uri),
     ToggleErrorsPanel,
-    ToggleShortcutsHelp,
+    CloseShortcutsHelp,
+    Tick(Instant),
     DatabaseInitialized(Database),
     ConversationsLoaded(Vec<ConversationData>),
     TrashedConversationsLoaded(Vec<ConversationData>),

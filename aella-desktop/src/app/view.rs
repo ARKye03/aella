@@ -1,7 +1,7 @@
 use crate::app::types::{Message, State};
-use crate::app::ui::styles::{modal_backdrop_style, modal_card_style};
+use crate::app::ui::styles::{modal_backdrop_style_with_alpha, modal_card_style_with_alpha};
 use crate::app::ui::{editor::build_editor_area, sidebar::build_sidebar};
-use iced::widget::{button, column, container, mouse_area, opaque, row, stack, text};
+use iced::widget::{column, container, mouse_area, opaque, row, stack, text};
 use iced::{Element, Fill};
 
 pub(crate) fn view(state: &State) -> Element<'_, Message> {
@@ -10,7 +10,12 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
     let content = row![sidebar, editor_area].spacing(0);
     let base = container(content).width(Fill).height(Fill);
 
-    if !state.shortcuts_help_open {
+    let transition = state
+        .shortcuts_help_animation
+        .interpolate(0.0_f32, 1.0_f32, state.now)
+        .clamp(0.0, 1.0);
+
+    if transition <= 0.001 {
         return base.into();
     }
 
@@ -47,26 +52,25 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
     )
     .spacing(8);
 
+    let modal_width = (500.0 + (transition * 60.0)) as u32;
+    let modal_padding = (14.0 + (transition * 6.0)) as u16;
+    let modal_y_offset = ((1.0 - transition) * 22.0) as u16;
+
     let modal = container(
         column![
-            row![
-                text("Keyboard Shortcuts").size(24),
-                button("Close")
-                    .on_press(Message::ToggleShortcutsHelp)
-                    .padding([6, 10])
-            ]
-            .spacing(16),
+            text("Keyboard Shortcuts").size(24),
             shortcut_list
         ]
         .spacing(16),
     )
-    .max_width(560)
-    .padding(20)
-    .style(modal_card_style);
+    .max_width(modal_width)
+    .padding(modal_padding)
+    .style(modal_card_style_with_alpha(transition));
 
     let centered_modal = container(mouse_area(modal).on_press(Message::Noop))
         .center_x(Fill)
         .center_y(Fill)
+        .padding([modal_y_offset, 0])
         .width(Fill)
         .height(Fill);
 
@@ -74,9 +78,9 @@ pub(crate) fn view(state: &State) -> Element<'_, Message> {
         container(centered_modal)
             .width(Fill)
             .height(Fill)
-            .style(modal_backdrop_style),
+            .style(modal_backdrop_style_with_alpha(transition)),
     )
-    .on_press(Message::ToggleShortcutsHelp);
+    .on_press(Message::CloseShortcutsHelp);
 
     let overlay = container(overlay)
         .width(Fill)

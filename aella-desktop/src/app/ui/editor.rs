@@ -340,11 +340,17 @@ fn build_lint_highlight_settings(text: &str, lints: &[Lint]) -> LintHighlightSet
     }
 
     fn offset_to_byte(offset: usize, text: &str, char_to_byte: &[usize]) -> Option<usize> {
-        if offset <= text.len() && text.is_char_boundary(offset) {
-            Some(offset)
-        } else {
-            char_to_byte.get(offset).copied()
+        // Harper spans are character offsets; map those first.
+        if let Some(byte_offset) = char_to_byte.get(offset).copied() {
+            return Some(byte_offset);
         }
+
+        // Fallback for any byte-based span source.
+        if offset <= text.len() && text.is_char_boundary(offset) {
+            return Some(offset);
+        }
+
+        None
     }
 
     let mut char_to_byte = Vec::with_capacity(text.chars().count() + 1);
@@ -495,5 +501,25 @@ mod tests {
         assert_eq!(settings.lines[0], vec![(2..3, LintHighlight::Error)]);
         assert_eq!(settings.lines[1], vec![(0..3, LintHighlight::Error)]);
         assert!(settings.lines[2].is_empty());
+    }
+
+    #[test]
+    fn highlight_uses_char_offsets_when_unicode_exists_before_span() {
+        let text = "🙂🙂 like seperate";
+        let target_start_char = text.find("seperate").unwrap();
+        let target_start_char = text[..target_start_char].chars().count();
+        let target_end_char = target_start_char + "seperate".chars().count();
+
+        let settings = build_lint_highlight_settings(
+            text,
+            &[lint(target_start_char..target_end_char, LintKind::Grammar)],
+        );
+        assert_eq!(settings.lines.len(), 1);
+
+        let (range, _) = &settings.lines[0][0];
+        let expected_start = text.find("seperate").unwrap();
+        let expected_end = expected_start + "seperate".len();
+        assert_eq!(range.start, expected_start);
+        assert_eq!(range.end, expected_end);
     }
 }

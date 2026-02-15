@@ -21,6 +21,8 @@ pub(crate) struct Conversation {
     pub(crate) id: i64,
     pub(crate) title: String,
     pub(crate) preview: String,
+    pub(crate) title_search: String,
+    pub(crate) preview_search: String,
 }
 
 pub(crate) struct State {
@@ -53,7 +55,6 @@ impl Default for State {
     fn default() -> Self {
         let dict = FstDictionary::curated();
         let mut linter = LintGroup::new_curated(dict.clone(), Dialect::American);
-
         let initial_text = "# Welcome to Aella\n\n\
                 Start typing to check your grammar in real-time.\n\n\
                 This is a markdown editor with built-in grammar checking powered by Harper.";

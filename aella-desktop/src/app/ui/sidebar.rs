@@ -155,8 +155,8 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
         .iter()
         .filter(|conv| {
             search_query.is_empty()
-                || conv.title.to_lowercase().contains(&search_query)
-                || conv.preview.to_lowercase().contains(&search_query)
+                || conv.title_search.contains(&search_query)
+                || conv.preview_search.contains(&search_query)
         })
         .collect();
 

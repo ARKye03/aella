@@ -4,17 +4,23 @@ use crate::app::{
     sidebar_search_input_id,
 };
 use crate::db::Database;
+use harper_core::Dialect;
+use harper_core::Document;
 use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
-use harper_core::{Dialect, Document};
 use iced::Task;
 use iced::keyboard;
 use iced::keyboard::Key;
 use iced::keyboard::key::Physical;
 use iced::widget::{markdown, operation, text_editor};
+use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+thread_local! {
+    static GRAMMAR_LINTER_CACHE: RefCell<Option<LintGroup>> = const { RefCell::new(None) };
+}
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
@@ -112,6 +118,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                         .find(|conv| conv.id == selected_id)
                     {
                         conv.title = state.current_title.clone();
+                        conv.title_search = normalize_for_search(&state.current_title);
                     }
                 } else if let Some(conv) = state
                     .conversations
@@ -119,6 +126,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                     .find(|conv| conv.id == selected_id)
                 {
                     conv.title = state.current_title.clone();
+                    conv.title_search = normalize_for_search(&state.current_title);
                 }
             }
             return schedule_autosave_task(state);
@@ -157,6 +165,8 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                         id: new_id as i64,
                         title: format!("New Conversation {}", new_id),
                         preview: String::from("Start writing..."),
+                        title_search: normalize_for_search(&format!("New Conversation {}", new_id)),
+                        preview_search: normalize_for_search("Start writing..."),
                     },
                 );
                 state.selected_conversation = Some(new_id as i64);
@@ -274,14 +284,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ConversationsLoaded(db_conversations) => {
             let had_selection = state.selected_conversation;
-            state.conversations = db_conversations
-                .iter()
-                .map(|conv| Conversation {
-                    id: conv.id,
-                    title: conv.title.clone(),
-                    preview: preview(&conv.content),
-                })
-                .collect();
+            state.conversations = db_conversations.iter().map(conversation_from_db).collect();
 
             if !state.selected_in_trash {
                 let next_selected = had_selection.and_then(|selected_id| {
@@ -300,14 +303,8 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::TrashedConversationsLoaded(db_conversations) => {
             let had_selection = state.selected_conversation;
-            state.trashed_conversations = db_conversations
-                .iter()
-                .map(|conv| Conversation {
-                    id: conv.id,
-                    title: conv.title.clone(),
-                    preview: preview(&conv.content),
-                })
-                .collect();
+            state.trashed_conversations =
+                db_conversations.iter().map(conversation_from_db).collect();
 
             if state.selected_in_trash {
                 let next_selected = had_selection.and_then(|selected_id| {
@@ -345,10 +342,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             generation,
             content,
         } => {
-            if generation == state.grammar_check_generation
-                && content != state.last_checked_text
-                && state.editor_content.text() == content
-            {
+            if should_run_grammar_check(state, generation, &content) {
                 return run_grammar_check_task(state.dict.clone(), content);
             }
         }
@@ -470,9 +464,13 @@ fn run_grammar_check_task(dict: Arc<FstDictionary>, content: String) -> Task<Mes
     Task::perform(
         async move {
             let dict_for_doc = dict.clone();
-            let mut linter = LintGroup::new_curated(dict, Dialect::American);
             let document = Document::new_markdown_default(&content, &dict_for_doc);
-            let lints = linter.lint(&document);
+            let lints = GRAMMAR_LINTER_CACHE.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                let linter =
+                    slot.get_or_insert_with(|| LintGroup::new_curated(dict, Dialect::American));
+                linter.lint(&document)
+            });
             (content, lints)
         },
         |(content, lints)| Message::GrammarChecked { content, lints },
@@ -563,6 +561,7 @@ fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
                 .find(|conv| conv.id == selected_id)
             {
                 conv.title = state.current_title.clone();
+                conv.title_search = normalize_for_search(&state.current_title);
             }
         } else if let Some(conv) = state
             .conversations
@@ -570,6 +569,7 @@ fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
             .find(|conv| conv.id == selected_id)
         {
             conv.title = state.current_title.clone();
+            conv.title_search = normalize_for_search(&state.current_title);
         }
     }
 }
@@ -611,6 +611,75 @@ fn parse_markdown_if_needed(state: &mut State) {
 
     state.markdown_items = markdown::parse(&state.last_checked_text).collect();
     state.markdown_dirty = false;
+}
+
+fn should_run_grammar_check(state: &State, generation: u64, content: &str) -> bool {
+    generation == state.grammar_check_generation
+        && content != state.last_checked_text
+        && state.editor_content.text() == content
+}
+
+fn conversation_from_db(conv: &crate::db::ConversationData) -> Conversation {
+    let preview = preview(&conv.content);
+    Conversation {
+        id: conv.id,
+        title: conv.title.clone(),
+        title_search: normalize_for_search(&conv.title),
+        preview_search: normalize_for_search(&preview),
+        preview,
+    }
+}
+
+fn normalize_for_search(text: &str) -> String {
+    text.trim().to_lowercase()
+}
+
+// Whoever thought about tests within core files, deserves to burn in hell (Subjective opinion btw)
+#[cfg(test)]
+mod tests {
+    use super::should_run_grammar_check;
+    use crate::app::types::State;
+    use iced::widget::text_editor;
+
+    #[test]
+    fn debounce_gate_accepts_current_payload() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("old");
+        state.editor_content = text_editor::Content::with_text("new");
+
+        assert!(should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_stale_generation() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("old");
+        state.editor_content = text_editor::Content::with_text("new");
+
+        assert!(!should_run_grammar_check(&state, 41, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_already_checked_content() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("new");
+        state.editor_content = text_editor::Content::with_text("new");
+
+        assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_if_editor_moved_on() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("old");
+        state.editor_content = text_editor::Content::with_text("newest");
+
+        assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
 }
 
 fn strip_trailing_shortcut_char(value: &mut String, shortcut_char: char) -> bool {

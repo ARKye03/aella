@@ -457,3 +457,36 @@ fn lint_color_for_kind(kind: LintKind) -> [f32; 3] {
         LintHighlight::Suggestion => [0.65, 0.88, 1.0],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{LintHighlight, build_lint_highlight_settings};
+    use harper_core::Span;
+    use harper_core::linting::{Lint, LintKind};
+
+    fn lint(span: std::ops::Range<usize>, kind: LintKind) -> Lint {
+        Lint {
+            span: Span::from(span),
+            lint_kind: kind,
+            ..Lint::default()
+        }
+    }
+
+    #[test]
+    fn highlight_maps_single_line_span() {
+        let settings =
+            build_lint_highlight_settings("alpha beta", &[lint(6..10, LintKind::Grammar)]);
+        assert_eq!(settings.lines.len(), 1);
+        assert_eq!(settings.lines[0], vec![(6..10, LintHighlight::Error)]);
+    }
+
+    #[test]
+    fn highlight_splits_multiline_span_by_line() {
+        let settings =
+            build_lint_highlight_settings("abc\ndefg\nh", &[lint(2..7, LintKind::Grammar)]);
+        assert_eq!(settings.lines.len(), 3);
+        assert_eq!(settings.lines[0], vec![(2..3, LintHighlight::Error)]);
+        assert_eq!(settings.lines[1], vec![(0..3, LintHighlight::Error)]);
+        assert!(settings.lines[2].is_empty());
+    }
+}

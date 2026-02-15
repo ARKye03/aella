@@ -1,8 +1,8 @@
 mod app;
 mod db;
 
-use app::{State, app_title, initialize_database_task, update, view};
 use app::subscription;
+use app::{State, app_title, initialize_database_task, update, view};
 use iced::window;
 
 fn main() -> iced::Result {

@@ -1,17 +1,27 @@
-use crate::app::sidebar_search_input_id;
 use crate::app::types::{Conversation, Message, State, ViewMode};
+use crate::app::{
+    AUTOSAVE_DEBOUNCE, GRAMMAR_CHECK_DEBOUNCE, primary_shortcut_modifier_pressed,
+    sidebar_search_input_id,
+};
 use crate::db::Database;
-use harper_core::linting::{LintGroup, Linter};
+use harper_core::Dialect;
+use harper_core::Document;
+use harper_core::linting::{Lint, LintGroup, Linter};
 use harper_core::spell::FstDictionary;
-use harper_core::{Dialect, Document};
+use iced::Task;
 use iced::keyboard;
 use iced::keyboard::Key;
 use iced::keyboard::key::Physical;
-use iced::Task;
 use iced::widget::{markdown, operation, text_editor};
+use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+
+thread_local! {
+    static GRAMMAR_LINTER_CACHE: RefCell<Option<LintGroup>> = const { RefCell::new(None) };
+}
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
@@ -28,8 +38,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 
             state.now = std::time::Instant::now();
 
-            if state.shortcuts_help_open
-                && matches!(key, Key::Named(keyboard::key::Named::Escape))
+            if state.shortcuts_help_open && matches!(key, Key::Named(keyboard::key::Named::Escape))
             {
                 set_shortcuts_help_open(state, false);
                 return Task::none();
@@ -110,6 +119,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                         .find(|conv| conv.id == selected_id)
                     {
                         conv.title = state.current_title.clone();
+                        conv.title_search = normalize_for_search(&state.current_title);
                     }
                 } else if let Some(conv) = state
                     .conversations
@@ -117,8 +127,10 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                     .find(|conv| conv.id == selected_id)
                 {
                     conv.title = state.current_title.clone();
+                    conv.title_search = normalize_for_search(&state.current_title);
                 }
             }
+            return schedule_autosave_task(state);
         }
         Message::SaveTitle => {
             return save_current_conversation_task(state);
@@ -140,10 +152,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 
                 return Task::perform(
                     async move {
-                        let _new_id = db_clone
-                            .create_conversation(&title, &content)
-                            .await
-                            .unwrap_or(0);
+                        if let Err(err) = db_clone.create_conversation(&title, &content).await {
+                            eprintln!("[aella] failed to create conversation: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -155,6 +166,8 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                         id: new_id as i64,
                         title: format!("New Conversation {}", new_id),
                         preview: String::from("Start writing..."),
+                        title_search: normalize_for_search(&format!("New Conversation {}", new_id)),
+                        preview_search: normalize_for_search("Start writing..."),
                     },
                 );
                 state.selected_conversation = Some(new_id as i64);
@@ -184,7 +197,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 }
                 return Task::perform(
                     async move {
-                        db_clone.trash_conversation(id).await.ok();
+                        if let Err(err) = db_clone.trash_conversation(id).await {
+                            eprintln!("[aella] failed to move conversation {id} to trash: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -195,7 +210,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 let db_clone = database.clone();
                 return Task::perform(
                     async move {
-                        db_clone.restore_conversation(id).await.ok();
+                        if let Err(err) = db_clone.restore_conversation(id).await {
+                            eprintln!("[aella] failed to restore conversation {id}: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -209,7 +226,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 }
                 return Task::perform(
                     async move {
-                        db_clone.delete_conversation(id).await.ok();
+                        if let Err(err) = db_clone.delete_conversation(id).await {
+                            eprintln!("[aella] failed to delete conversation {id}: {err}");
+                        }
                     },
                     |_| Message::RefreshLists,
                 );
@@ -217,29 +236,40 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ApplyLintSuggestion(index) => {
             apply_single_suggestion(state, index);
+            return schedule_autosave_task(state);
+        }
+        Message::DismissLint(index) => {
+            dismiss_single_lint(state, index);
         }
         Message::ApplyAllSuggestions => {
             apply_all_suggestions(state);
+            return schedule_autosave_task(state);
         }
         Message::EditorAction(action) => {
+            let text_before = state.editor_content.text();
             state.editor_content.perform(action);
 
             let text = state.editor_content.text();
-
-            if text != state.last_checked_text {
-                let document = Document::new_markdown_default(&text, &state.dict);
-                state.grammar_lints = state.linter.lint(&document);
-                state.markdown_items = markdown::parse(&text).collect();
-                state.last_checked_text = text;
-            }
+            let text_changed = text != text_before;
 
             state.cursor_position = calculate_cursor_position(&state.editor_content);
+            if text_changed {
+                if text != state.last_checked_text {
+                    state.grammar_lints.clear();
+                    state.markdown_dirty = true;
+                }
+                return Task::batch(vec![
+                    schedule_autosave_task(state),
+                    schedule_grammar_check_task(state, text),
+                ]);
+            }
         }
         Message::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
         }
         Message::SetViewMode(mode) => {
             state.view_mode = mode;
+            parse_markdown_if_needed(state);
         }
         Message::MarkdownLinkClicked(_url) => {}
         Message::ToggleErrorsPanel => {
@@ -258,14 +288,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ConversationsLoaded(db_conversations) => {
             let had_selection = state.selected_conversation;
-            state.conversations = db_conversations
-                .iter()
-                .map(|conv| Conversation {
-                    id: conv.id,
-                    title: conv.title.clone(),
-                    preview: preview(&conv.content),
-                })
-                .collect();
+            state.conversations = db_conversations.iter().map(conversation_from_db).collect();
 
             if !state.selected_in_trash {
                 let next_selected = had_selection.and_then(|selected_id| {
@@ -284,14 +307,8 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::TrashedConversationsLoaded(db_conversations) => {
             let had_selection = state.selected_conversation;
-            state.trashed_conversations = db_conversations
-                .iter()
-                .map(|conv| Conversation {
-                    id: conv.id,
-                    title: conv.title.clone(),
-                    preview: preview(&conv.content),
-                })
-                .collect();
+            state.trashed_conversations =
+                db_conversations.iter().map(conversation_from_db).collect();
 
             if state.selected_in_trash {
                 let next_selected = had_selection.and_then(|selected_id| {
@@ -309,18 +326,38 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::ConversationDataLoaded(conv) => {
+            state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
+            state.dismissed_lint_keys.clear();
             state.current_title = conv.title;
             state.editor_content = text_editor::Content::with_text(&conv.content);
-            state.markdown_items = markdown::parse(&conv.content).collect();
+            state.markdown_dirty = true;
             state.last_checked_text = conv.content.clone();
+            parse_markdown_if_needed(state);
             return run_grammar_check_task(state.dict.clone(), conv.content);
         }
         Message::RefreshLists => {
             return refresh_lists_task(state);
         }
+        Message::AutosaveDue(generation) => {
+            if generation == state.autosave_generation {
+                return save_current_conversation_task(state);
+            }
+        }
+        Message::GrammarCheckDebounced {
+            generation,
+            content,
+        } => {
+            if should_run_grammar_check(state, generation, &content) {
+                return run_grammar_check_task(state.dict.clone(), content);
+            }
+        }
         Message::GrammarChecked { content, lints } => {
-            if state.last_checked_text == content {
-                state.grammar_lints = lints;
+            if state.editor_content.text() == content {
+                state.grammar_lints =
+                    filter_dismissed_lints(&state.dismissed_lint_keys, &content, lints);
+                state.last_checked_text = content;
+                state.markdown_dirty = true;
+                parse_markdown_if_needed(state);
             }
         }
         Message::Noop => {}
@@ -330,13 +367,24 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
 }
 
 pub(crate) fn initialize_database_task() -> Task<Message> {
-    Task::perform(async { Database::new().await.ok() }, |db_opt| {
-        if let Some(db) = db_opt {
-            Message::DatabaseInitialized(db)
-        } else {
-            Message::Noop
-        }
-    })
+    Task::perform(
+        async {
+            match Database::new().await {
+                Ok(db) => Some(db),
+                Err(err) => {
+                    eprintln!("[aella] failed to initialize database: {err}");
+                    None
+                }
+            }
+        },
+        |db_opt| {
+            if let Some(db) = db_opt {
+                Message::DatabaseInitialized(db)
+            } else {
+                Message::Noop
+            }
+        },
+    )
 }
 
 fn save_current_conversation_task(state: &State) -> Task<Message> {
@@ -346,10 +394,12 @@ fn save_current_conversation_task(state: &State) -> Task<Message> {
         let content = state.editor_content.text();
         return Task::perform(
             async move {
-                db_clone
+                if let Err(err) = db_clone
                     .update_conversation(selected_id, &title, &content)
                     .await
-                    .ok();
+                {
+                    eprintln!("[aella] failed to save conversation {selected_id}: {err}");
+                }
             },
             |_| Message::ConversationSaved,
         );
@@ -361,7 +411,15 @@ fn load_conversation_task(state: &State, id: i64) -> Task<Message> {
     if let Some(database) = &state.database {
         let db_clone = database.clone();
         return Task::perform(
-            async move { db_clone.get_conversation(id).await.ok().flatten() },
+            async move {
+                match db_clone.get_conversation(id).await {
+                    Ok(data) => data,
+                    Err(err) => {
+                        eprintln!("[aella] failed to load conversation {id}: {err}");
+                        None
+                    }
+                }
+            },
             |conv| {
                 if let Some(data) = conv {
                     Message::ConversationDataLoaded(data)
@@ -380,15 +438,26 @@ fn refresh_lists_task(state: &State) -> Task<Message> {
         let trash_db = database.clone();
         return Task::batch(vec![
             Task::perform(
-                async move { active_db.get_all_conversations().await.unwrap_or_default() },
+                async move {
+                    match active_db.get_all_conversations().await {
+                        Ok(conversations) => conversations,
+                        Err(err) => {
+                            eprintln!("[aella] failed to load conversations: {err}");
+                            Vec::new()
+                        }
+                    }
+                },
                 Message::ConversationsLoaded,
             ),
             Task::perform(
                 async move {
-                    trash_db
-                        .get_trashed_conversations()
-                        .await
-                        .unwrap_or_default()
+                    match trash_db.get_trashed_conversations().await {
+                        Ok(conversations) => conversations,
+                        Err(err) => {
+                            eprintln!("[aella] failed to load trashed conversations: {err}");
+                            Vec::new()
+                        }
+                    }
                 },
                 Message::TrashedConversationsLoaded,
             ),
@@ -401,9 +470,13 @@ fn run_grammar_check_task(dict: Arc<FstDictionary>, content: String) -> Task<Mes
     Task::perform(
         async move {
             let dict_for_doc = dict.clone();
-            let mut linter = LintGroup::new_curated(dict, Dialect::American);
             let document = Document::new_markdown_default(&content, &dict_for_doc);
-            let lints = linter.lint(&document);
+            let lints = GRAMMAR_LINTER_CACHE.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                let linter =
+                    slot.get_or_insert_with(|| LintGroup::new_curated(dict, Dialect::American));
+                linter.lint(&document)
+            });
             (content, lints)
         },
         |(content, lints)| Message::GrammarChecked { content, lints },
@@ -419,18 +492,35 @@ fn preview(content: &str) -> String {
     if content.is_empty() {
         return String::from("Start writing...");
     }
-    let mut text = content.chars().take(50).collect::<String>();
-    if content.chars().count() > 50 {
-        text.push_str("...");
+
+    let mut result = String::new();
+    let mut count = 0usize;
+    let mut truncated = false;
+
+    for ch in content.chars() {
+        if count == 50 {
+            truncated = true;
+            break;
+        }
+        result.push(ch);
+        count += 1;
     }
-    text
+
+    if truncated {
+        result.push_str("...");
+    }
+
+    result
 }
 
 fn clear_loaded_conversation(state: &mut State) {
+    state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
+    state.dismissed_lint_keys.clear();
     state.selected_conversation = None;
     state.current_title = String::from("Untitled");
     state.editor_content = text_editor::Content::new();
     state.markdown_items = Vec::new();
+    state.markdown_dirty = false;
     state.grammar_lints = Vec::new();
     state.last_checked_text.clear();
 }
@@ -444,10 +534,7 @@ fn key_matches_digit(physical_key: Physical) -> bool {
     )
 }
 
-fn is_shortcuts_help_shortcut(
-    key_char: Option<char>,
-    physical_key: Physical,
-) -> bool {
+fn is_shortcuts_help_shortcut(key_char: Option<char>, physical_key: Physical) -> bool {
     matches!(key_char.map(|c| c.to_ascii_lowercase()), Some('k'))
         || matches!(physical_key, Physical::Code(keyboard::key::Code::KeyK))
 }
@@ -461,15 +548,15 @@ fn set_shortcuts_help_open(state: &mut State, open: bool) {
     state.shortcuts_help_animation.go_mut(open, state.now);
 }
 
-fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
-    modifiers.logo() || modifiers.control()
-}
-
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
     let changed_search = strip_trailing_shortcut_char(&mut state.search_query, shortcut_char);
+    if changed_search {
+        return;
+    }
+
     let changed_title = strip_trailing_shortcut_char(&mut state.current_title, shortcut_char);
 
-    if changed_search || !changed_title {
+    if !changed_title {
         return;
     }
 
@@ -481,6 +568,7 @@ fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
                 .find(|conv| conv.id == selected_id)
             {
                 conv.title = state.current_title.clone();
+                conv.title_search = normalize_for_search(&state.current_title);
             }
         } else if let Some(conv) = state
             .conversations
@@ -488,7 +576,215 @@ fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
             .find(|conv| conv.id == selected_id)
         {
             conv.title = state.current_title.clone();
+            conv.title_search = normalize_for_search(&state.current_title);
         }
+    }
+}
+
+fn schedule_autosave_task(state: &mut State) -> Task<Message> {
+    state.autosave_generation = state.autosave_generation.saturating_add(1);
+    let generation = state.autosave_generation;
+    Task::perform(
+        async move {
+            tokio::time::sleep(AUTOSAVE_DEBOUNCE).await;
+            generation
+        },
+        Message::AutosaveDue,
+    )
+}
+
+fn schedule_grammar_check_task(state: &mut State, content: String) -> Task<Message> {
+    state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
+    let generation = state.grammar_check_generation;
+    Task::perform(
+        async move {
+            tokio::time::sleep(GRAMMAR_CHECK_DEBOUNCE).await;
+            (generation, content)
+        },
+        |(generation, content)| Message::GrammarCheckDebounced {
+            generation,
+            content,
+        },
+    )
+}
+
+fn parse_markdown_if_needed(state: &mut State) {
+    if !state.markdown_dirty {
+        return;
+    }
+    if matches!(state.view_mode, ViewMode::RawCode) {
+        return;
+    }
+
+    state.markdown_items = markdown::parse(&state.last_checked_text).collect();
+    state.markdown_dirty = false;
+}
+
+fn should_run_grammar_check(state: &State, generation: u64, content: &str) -> bool {
+    generation == state.grammar_check_generation
+        && content != state.last_checked_text
+        && state.editor_content.text() == content
+}
+
+fn filter_dismissed_lints(
+    dismissed_lint_keys: &HashSet<u64>,
+    content: &str,
+    lints: Vec<Lint>,
+) -> Vec<Lint> {
+    lints
+        .into_iter()
+        .filter(|lint| {
+            let key = lint_dismiss_key(lint, content);
+            !dismissed_lint_keys.contains(&key)
+        })
+        .collect()
+}
+
+fn lint_dismiss_key(lint: &Lint, content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    lint.spanless_hash().hash(&mut hasher);
+
+    if let Some(span_text) = slice_by_char_span(content, lint.span.start, lint.span.end) {
+        span_text.hash(&mut hasher);
+    } else {
+        lint.span.start.hash(&mut hasher);
+        lint.span.end.hash(&mut hasher);
+    }
+
+    hasher.finish()
+}
+
+fn slice_by_char_span(content: &str, start: usize, end: usize) -> Option<String> {
+    if start > end {
+        return None;
+    }
+
+    let byte_start = char_offset_to_byte(content, start)?;
+    let byte_end = char_offset_to_byte(content, end)?;
+    if byte_start > byte_end || byte_end > content.len() {
+        return None;
+    }
+
+    Some(content[byte_start..byte_end].to_string())
+}
+
+fn char_offset_to_byte(content: &str, target: usize) -> Option<usize> {
+    if target == 0 {
+        return Some(0);
+    }
+
+    for (char_idx, (byte_idx, _)) in content.char_indices().enumerate() {
+        if char_idx == target {
+            return Some(byte_idx);
+        }
+    }
+
+    if content.chars().count() == target {
+        Some(content.len())
+    } else {
+        None
+    }
+}
+
+fn dismiss_single_lint(state: &mut State, lint_index: usize) {
+    let Some(lint) = state.grammar_lints.get(lint_index) else {
+        return;
+    };
+
+    let key = lint_dismiss_key(lint, &state.last_checked_text);
+    state.dismissed_lint_keys.insert(key);
+    state.grammar_lints.remove(lint_index);
+}
+
+fn conversation_from_db(conv: &crate::db::ConversationData) -> Conversation {
+    let preview = preview(&conv.content);
+    Conversation {
+        id: conv.id,
+        title: conv.title.clone(),
+        title_search: normalize_for_search(&conv.title),
+        preview_search: normalize_for_search(&preview),
+        preview,
+    }
+}
+
+fn normalize_for_search(text: &str) -> String {
+    text.trim().to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{filter_dismissed_lints, lint_dismiss_key, should_run_grammar_check};
+    use crate::app::types::State;
+    use harper_core::Span;
+    use harper_core::linting::{Lint, LintKind};
+    use iced::widget::text_editor;
+
+    fn lint_with_message(message: &str, span: std::ops::Range<usize>) -> Lint {
+        Lint {
+            message: message.to_string(),
+            span: Span::from(span),
+            lint_kind: LintKind::Grammar,
+            ..Lint::default()
+        }
+    }
+
+    #[test]
+    fn debounce_gate_accepts_current_payload() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("old");
+        state.editor_content = text_editor::Content::with_text("new");
+
+        assert!(should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_stale_generation() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("old");
+        state.editor_content = text_editor::Content::with_text("new");
+
+        assert!(!should_run_grammar_check(&state, 41, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_already_checked_content() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("new");
+        state.editor_content = text_editor::Content::with_text("new");
+
+        assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_if_editor_moved_on() {
+        let mut state = State::default();
+        state.grammar_check_generation = 42;
+        state.last_checked_text = String::from("old");
+        state.editor_content = text_editor::Content::with_text("newest");
+
+        assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn filters_user_dismissed_lints_only() {
+        let content = "This sentence is very long. Keep this.";
+        let dismissed = lint_with_message("This sentence is 334 words long.", 0..27);
+        let kept = lint_with_message("Use a comma after introductory phrase.", 28..38);
+
+        let mut state = State::default();
+        let key = lint_dismiss_key(&dismissed, content);
+        state.dismissed_lint_keys.insert(key);
+
+        let filtered = filter_dismissed_lints(
+            &state.dismissed_lint_keys,
+            content,
+            vec![dismissed, kept.clone()],
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].message, kept.message);
     }
 }
 
@@ -532,7 +828,11 @@ fn apply_all_suggestions(state: &mut State) {
 
     for _ in 0..MAX_PASSES {
         let document = Document::new_markdown_default(&content, &state.dict);
-        let lints = state.linter.lint(&document);
+        let lints = filter_dismissed_lints(
+            &state.dismissed_lint_keys,
+            &content,
+            state.linter.lint(&document),
+        );
 
         // Keep only one suggestion per exact lint span.
         let mut seen_spans = HashSet::new();
@@ -575,6 +875,10 @@ fn set_content_and_relint(state: &mut State, content: String) {
     state.cursor_position = calculate_cursor_position(&state.editor_content);
 
     let document = Document::new_markdown_default(&content, &state.dict);
-    state.grammar_lints = state.linter.lint(&document);
+    state.grammar_lints = filter_dismissed_lints(
+        &state.dismissed_lint_keys,
+        &content,
+        state.linter.lint(&document),
+    );
     state.last_checked_text = content;
 }

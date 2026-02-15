@@ -1,3 +1,4 @@
+use crate::app::primary_shortcut_modifier_pressed;
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{container_bg, outlined_container_bg};
 use harper_core::linting::{Lint, LintKind};
@@ -10,6 +11,8 @@ use iced::{Element, Fill};
 use std::ops::Range;
 
 const APPLY_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/apply.svg");
+const PANEL_HEIGHT_COLLAPSED: u32 = 40;
+const PANEL_HEIGHT_EXPANDED: u32 = 200;
 
 pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let title_input = text_input("Conversation title", &state.current_title)
@@ -115,9 +118,9 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     };
 
     let panel_height = if state.errors_panel_collapsed {
-        40
+        PANEL_HEIGHT_COLLAPSED
     } else {
-        200
+        PANEL_HEIGHT_EXPANDED
     };
 
     let toggle_icon = if state.errors_panel_collapsed {
@@ -182,12 +185,19 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                                 .map(|_| Message::ApplyLintSuggestion(index)),
                         )
                         .padding([4, 8]);
+                    let dismiss_button = button(text("Dismiss").size(11))
+                        .on_press(Message::DismissLint(index))
+                        .padding([4, 8]);
 
                     Element::from(
                         column![
-                            row![text(message).size(13).color(issue_color), apply_button]
-                                .align_y(iced::Center)
-                                .spacing(8),
+                            row![
+                                text(message).size(13).color(issue_color),
+                                apply_button,
+                                dismiss_button
+                            ]
+                            .align_y(iced::Center)
+                            .spacing(8),
                             text(suggestion_text).size(12).color([0.7, 0.7, 0.7]),
                         ]
                         .spacing(4)
@@ -221,7 +231,9 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let footer = container(
         row![
             shortcuts_hint,
-            container(cursor_text).width(Fill).align_x(iced::alignment::Horizontal::Right)
+            container(cursor_text)
+                .width(Fill)
+                .align_x(iced::alignment::Horizontal::Right)
         ]
         .align_y(iced::Center)
         .spacing(12),
@@ -248,7 +260,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
 
 fn build_raw_editor(state: &State) -> Element<'_, Message> {
     let highlight_settings =
-        build_lint_highlight_settings(&state.editor_content.text(), &state.grammar_lints);
+        build_lint_highlight_settings(&state.last_checked_text, &state.grammar_lints);
     let editor = text_editor(&state.editor_content)
         .on_action(Message::EditorAction)
         .key_binding(|key_press| {
@@ -296,6 +308,8 @@ impl Highlighter for LintHighlighter {
 
     fn update(&mut self, new_settings: &Self::Settings) {
         self.settings = new_settings.clone();
+        // Reset cursor whenever settings change so a fresh render starts at line 0.
+        self.current_line = 0;
     }
 
     fn change_line(&mut self, line: usize) {
@@ -319,33 +333,73 @@ impl Highlighter for LintHighlighter {
 }
 
 fn build_lint_highlight_settings(text: &str, lints: &[Lint]) -> LintHighlightSettings {
-    let line_segments = text.split('\n').collect::<Vec<_>>();
-    let mut line_starts = Vec::with_capacity(line_segments.len());
-    let mut cursor = 0usize;
-    for segment in &line_segments {
-        line_starts.push(cursor);
-        cursor += segment.chars().count() + 1;
+    #[derive(Clone, Copy)]
+    struct LineRange {
+        byte_start: usize,
+        byte_end: usize,
     }
 
-    let mut lines = vec![Vec::new(); line_segments.len().max(1)];
+    fn offset_to_byte(offset: usize, text: &str, char_to_byte: &[usize]) -> Option<usize> {
+        // Harper spans are character offsets; map those first.
+        if let Some(byte_offset) = char_to_byte.get(offset).copied() {
+            return Some(byte_offset);
+        }
+
+        // Fallback for any byte-based span source.
+        if offset <= text.len() && text.is_char_boundary(offset) {
+            return Some(offset);
+        }
+
+        None
+    }
+
+    let mut char_to_byte = Vec::with_capacity(text.chars().count() + 1);
+    for (byte_index, _) in text.char_indices() {
+        char_to_byte.push(byte_index);
+    }
+    char_to_byte.push(text.len());
+
+    let mut lines_meta = Vec::new();
+    let mut line_start = 0usize;
+    for (byte_index, ch) in text.char_indices() {
+        if ch == '\n' {
+            lines_meta.push(LineRange {
+                byte_start: line_start,
+                byte_end: byte_index,
+            });
+            line_start = byte_index + ch.len_utf8();
+        }
+    }
+    lines_meta.push(LineRange {
+        byte_start: line_start,
+        byte_end: text.len(),
+    });
+
+    let mut lines = vec![Vec::new(); lines_meta.len().max(1)];
 
     for lint in lints {
         if lint.span.is_empty() {
             continue;
         }
+        let Some(start_byte) = offset_to_byte(lint.span.start, text, &char_to_byte) else {
+            continue;
+        };
+        let Some(end_byte) = offset_to_byte(lint.span.end, text, &char_to_byte) else {
+            continue;
+        };
+        if end_byte <= start_byte {
+            continue;
+        }
+
         let level = lint_level_from_kind(lint.lint_kind);
-        for (line_index, segment) in line_segments.iter().enumerate() {
-            let line_start = line_starts[line_index];
-            let line_end = line_start + segment.chars().count();
+        let start_line = lines_meta.partition_point(|line| line.byte_end <= start_byte);
+        let end_line = lines_meta.partition_point(|line| line.byte_start < end_byte);
 
-            if lint.span.end <= line_start || lint.span.start >= line_end {
-                continue;
-            }
-
-            let local_start = lint.span.start.saturating_sub(line_start);
-            let local_end = lint.span.end.min(line_end).saturating_sub(line_start);
+        for (line_index, line) in lines_meta[start_line..end_line].iter().enumerate() {
+            let local_start = start_byte.saturating_sub(line.byte_start);
+            let local_end = end_byte.min(line.byte_end).saturating_sub(line.byte_start);
             if local_start < local_end {
-                lines[line_index].push((local_start..local_end, level));
+                lines[start_line + line_index].push((local_start..local_end, level));
             }
         }
     }
@@ -377,10 +431,6 @@ fn is_app_shortcut_keypress(key_press: &text_editor::KeyPress) -> bool {
             | keyboard::key::Physical::Code(keyboard::key::Code::Digit3)
             | keyboard::key::Physical::Code(keyboard::key::Code::KeyK)
     )
-}
-
-fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
-    modifiers.logo() || modifiers.control()
 }
 
 fn lint_highlight_format(
@@ -418,5 +468,58 @@ fn lint_color_for_kind(kind: LintKind) -> [f32; 3] {
         LintHighlight::Error => [1.0, 0.7, 0.7],
         LintHighlight::Warning => [1.0, 0.82, 0.55],
         LintHighlight::Suggestion => [0.65, 0.88, 1.0],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LintHighlight, build_lint_highlight_settings};
+    use harper_core::Span;
+    use harper_core::linting::{Lint, LintKind};
+
+    fn lint(span: std::ops::Range<usize>, kind: LintKind) -> Lint {
+        Lint {
+            span: Span::from(span),
+            lint_kind: kind,
+            ..Lint::default()
+        }
+    }
+
+    #[test]
+    fn highlight_maps_single_line_span() {
+        let settings =
+            build_lint_highlight_settings("alpha beta", &[lint(6..10, LintKind::Grammar)]);
+        assert_eq!(settings.lines.len(), 1);
+        assert_eq!(settings.lines[0], vec![(6..10, LintHighlight::Error)]);
+    }
+
+    #[test]
+    fn highlight_splits_multiline_span_by_line() {
+        let settings =
+            build_lint_highlight_settings("abc\ndefg\nh", &[lint(2..7, LintKind::Grammar)]);
+        assert_eq!(settings.lines.len(), 3);
+        assert_eq!(settings.lines[0], vec![(2..3, LintHighlight::Error)]);
+        assert_eq!(settings.lines[1], vec![(0..3, LintHighlight::Error)]);
+        assert!(settings.lines[2].is_empty());
+    }
+
+    #[test]
+    fn highlight_uses_char_offsets_when_unicode_exists_before_span() {
+        let text = "🙂🙂 like seperate";
+        let target_start_char = text.find("seperate").unwrap();
+        let target_start_char = text[..target_start_char].chars().count();
+        let target_end_char = target_start_char + "seperate".chars().count();
+
+        let settings = build_lint_highlight_settings(
+            text,
+            &[lint(target_start_char..target_end_char, LintKind::Grammar)],
+        );
+        assert_eq!(settings.lines.len(), 1);
+
+        let (range, _) = &settings.lines[0][0];
+        let expected_start = text.find("seperate").unwrap();
+        let expected_end = expected_start + "seperate".len();
+        assert_eq!(range.start, expected_start);
+        assert_eq!(range.end, expected_end);
     }
 }

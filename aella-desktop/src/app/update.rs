@@ -6,7 +6,7 @@ use crate::app::{
 use crate::db::Database;
 use harper_core::Dialect;
 use harper_core::Document;
-use harper_core::linting::{LintGroup, Linter};
+use harper_core::linting::{Lint, LintGroup, Linter};
 use harper_core::spell::FstDictionary;
 use iced::Task;
 use iced::keyboard;
@@ -16,6 +16,7 @@ use iced::widget::{markdown, operation, text_editor};
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 thread_local! {
@@ -237,6 +238,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             apply_single_suggestion(state, index);
             return schedule_autosave_task(state);
         }
+        Message::DismissLint(index) => {
+            dismiss_single_lint(state, index);
+        }
         Message::ApplyAllSuggestions => {
             apply_all_suggestions(state);
             return schedule_autosave_task(state);
@@ -323,6 +327,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ConversationDataLoaded(conv) => {
             state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
+            state.dismissed_lint_keys.clear();
             state.current_title = conv.title;
             state.editor_content = text_editor::Content::with_text(&conv.content);
             state.markdown_dirty = true;
@@ -348,7 +353,8 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::GrammarChecked { content, lints } => {
             if state.editor_content.text() == content {
-                state.grammar_lints = lints;
+                state.grammar_lints =
+                    filter_dismissed_lints(&state.dismissed_lint_keys, &content, lints);
                 state.last_checked_text = content;
                 state.markdown_dirty = true;
                 parse_markdown_if_needed(state);
@@ -509,6 +515,7 @@ fn preview(content: &str) -> String {
 
 fn clear_loaded_conversation(state: &mut State) {
     state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
+    state.dismissed_lint_keys.clear();
     state.selected_conversation = None;
     state.current_title = String::from("Untitled");
     state.editor_content = text_editor::Content::new();
@@ -619,6 +626,76 @@ fn should_run_grammar_check(state: &State, generation: u64, content: &str) -> bo
         && state.editor_content.text() == content
 }
 
+fn filter_dismissed_lints(
+    dismissed_lint_keys: &HashSet<u64>,
+    content: &str,
+    lints: Vec<Lint>,
+) -> Vec<Lint> {
+    lints
+        .into_iter()
+        .filter(|lint| {
+            let key = lint_dismiss_key(lint, content);
+            !dismissed_lint_keys.contains(&key)
+        })
+        .collect()
+}
+
+fn lint_dismiss_key(lint: &Lint, content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    lint.spanless_hash().hash(&mut hasher);
+
+    if let Some(span_text) = slice_by_char_span(content, lint.span.start, lint.span.end) {
+        span_text.hash(&mut hasher);
+    } else {
+        lint.span.start.hash(&mut hasher);
+        lint.span.end.hash(&mut hasher);
+    }
+
+    hasher.finish()
+}
+
+fn slice_by_char_span(content: &str, start: usize, end: usize) -> Option<String> {
+    if start > end {
+        return None;
+    }
+
+    let byte_start = char_offset_to_byte(content, start)?;
+    let byte_end = char_offset_to_byte(content, end)?;
+    if byte_start > byte_end || byte_end > content.len() {
+        return None;
+    }
+
+    Some(content[byte_start..byte_end].to_string())
+}
+
+fn char_offset_to_byte(content: &str, target: usize) -> Option<usize> {
+    if target == 0 {
+        return Some(0);
+    }
+
+    for (char_idx, (byte_idx, _)) in content.char_indices().enumerate() {
+        if char_idx == target {
+            return Some(byte_idx);
+        }
+    }
+
+    if content.chars().count() == target {
+        Some(content.len())
+    } else {
+        None
+    }
+}
+
+fn dismiss_single_lint(state: &mut State, lint_index: usize) {
+    let Some(lint) = state.grammar_lints.get(lint_index) else {
+        return;
+    };
+
+    let key = lint_dismiss_key(lint, &state.last_checked_text);
+    state.dismissed_lint_keys.insert(key);
+    state.grammar_lints.remove(lint_index);
+}
+
 fn conversation_from_db(conv: &crate::db::ConversationData) -> Conversation {
     let preview = preview(&conv.content);
     Conversation {
@@ -634,12 +711,22 @@ fn normalize_for_search(text: &str) -> String {
     text.trim().to_lowercase()
 }
 
-// Whoever thought about tests within core files, deserves to burn in hell (Subjective opinion btw)
 #[cfg(test)]
 mod tests {
-    use super::should_run_grammar_check;
+    use super::{filter_dismissed_lints, lint_dismiss_key, should_run_grammar_check};
     use crate::app::types::State;
+    use harper_core::Span;
+    use harper_core::linting::{Lint, LintKind};
     use iced::widget::text_editor;
+
+    fn lint_with_message(message: &str, span: std::ops::Range<usize>) -> Lint {
+        Lint {
+            message: message.to_string(),
+            span: Span::from(span),
+            lint_kind: LintKind::Grammar,
+            ..Lint::default()
+        }
+    }
 
     #[test]
     fn debounce_gate_accepts_current_payload() {
@@ -679,6 +766,25 @@ mod tests {
         state.editor_content = text_editor::Content::with_text("newest");
 
         assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn filters_user_dismissed_lints_only() {
+        let content = "This sentence is very long. Keep this.";
+        let dismissed = lint_with_message("This sentence is 334 words long.", 0..27);
+        let kept = lint_with_message("Use a comma after introductory phrase.", 28..38);
+
+        let mut state = State::default();
+        let key = lint_dismiss_key(&dismissed, content);
+        state.dismissed_lint_keys.insert(key);
+
+        let filtered = filter_dismissed_lints(
+            &state.dismissed_lint_keys,
+            content,
+            vec![dismissed, kept.clone()],
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].message, kept.message);
     }
 }
 
@@ -722,7 +828,11 @@ fn apply_all_suggestions(state: &mut State) {
 
     for _ in 0..MAX_PASSES {
         let document = Document::new_markdown_default(&content, &state.dict);
-        let lints = state.linter.lint(&document);
+        let lints = filter_dismissed_lints(
+            &state.dismissed_lint_keys,
+            &content,
+            state.linter.lint(&document),
+        );
 
         // Keep only one suggestion per exact lint span.
         let mut seen_spans = HashSet::new();
@@ -765,6 +875,10 @@ fn set_content_and_relint(state: &mut State, content: String) {
     state.cursor_position = calculate_cursor_position(&state.editor_content);
 
     let document = Document::new_markdown_default(&content, &state.dict);
-    state.grammar_lints = state.linter.lint(&document);
+    state.grammar_lints = filter_dismissed_lints(
+        &state.dismissed_lint_keys,
+        &content,
+        state.linter.lint(&document),
+    );
     state.last_checked_text = content;
 }

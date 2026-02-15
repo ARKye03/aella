@@ -185,12 +185,19 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                                 .map(|_| Message::ApplyLintSuggestion(index)),
                         )
                         .padding([4, 8]);
+                    let dismiss_button = button(text("Dismiss").size(11))
+                        .on_press(Message::DismissLint(index))
+                        .padding([4, 8]);
 
                     Element::from(
                         column![
-                            row![text(message).size(13).color(issue_color), apply_button]
-                                .align_y(iced::Center)
-                                .spacing(8),
+                            row![
+                                text(message).size(13).color(issue_color),
+                                apply_button,
+                                dismiss_button
+                            ]
+                            .align_y(iced::Center)
+                            .spacing(8),
                             text(suggestion_text).size(12).color([0.7, 0.7, 0.7]),
                         ]
                         .spacing(4)

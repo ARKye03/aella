@@ -6,6 +6,7 @@ use harper_core::spell::FstDictionary;
 use iced::keyboard;
 use iced::widget::{markdown, text_editor};
 use iced_core::animation::{Animation, Easing};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -49,6 +50,7 @@ pub(crate) struct State {
     pub(crate) autosave_generation: u64,
     pub(crate) grammar_check_generation: u64,
     pub(crate) markdown_dirty: bool,
+    pub(crate) dismissed_lint_keys: HashSet<u64>,
 }
 
 impl Default for State {
@@ -89,6 +91,7 @@ impl Default for State {
             autosave_generation: 0,
             grammar_check_generation: 0,
             markdown_dirty: false,
+            dismissed_lint_keys: HashSet::new(),
         }
     }
 }
@@ -107,6 +110,7 @@ pub(crate) enum Message {
     RestoreConversation(i64),
     DeleteConversationPermanently(i64),
     ApplyLintSuggestion(usize),
+    DismissLint(usize),
     ApplyAllSuggestions,
     EditorAction(text_editor::Action),
     ToggleSidebar,

@@ -1,5 +1,8 @@
-use crate::app::sidebar_search_input_id;
 use crate::app::types::{Conversation, Message, State, ViewMode};
+use crate::app::{
+    AUTOSAVE_DEBOUNCE, GRAMMAR_CHECK_DEBOUNCE, primary_shortcut_modifier_pressed,
+    sidebar_search_input_id,
+};
 use crate::db::Database;
 use harper_core::linting::{LintGroup, Linter};
 use harper_core::spell::FstDictionary;
@@ -12,7 +15,6 @@ use iced::widget::{markdown, operation, text_editor};
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
 
 pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
@@ -240,6 +242,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             if text_changed {
                 if text != state.last_checked_text {
                     state.grammar_lints.clear();
+                    state.markdown_dirty = true;
                 }
                 return Task::batch(vec![
                     schedule_autosave_task(state),
@@ -252,6 +255,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::SetViewMode(mode) => {
             state.view_mode = mode;
+            parse_markdown_if_needed(state);
         }
         Message::MarkdownLinkClicked(_url) => {}
         Message::ToggleErrorsPanel => {
@@ -324,8 +328,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
             state.current_title = conv.title;
             state.editor_content = text_editor::Content::with_text(&conv.content);
-            state.markdown_items = markdown::parse(&conv.content).collect();
+            state.markdown_dirty = true;
             state.last_checked_text = conv.content.clone();
+            parse_markdown_if_needed(state);
             return run_grammar_check_task(state.dict.clone(), conv.content);
         }
         Message::RefreshLists => {
@@ -350,8 +355,9 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::GrammarChecked { content, lints } => {
             if state.editor_content.text() == content {
                 state.grammar_lints = lints;
-                state.markdown_items = markdown::parse(&content).collect();
                 state.last_checked_text = content;
+                state.markdown_dirty = true;
+                parse_markdown_if_needed(state);
             }
         }
         Message::Noop => {}
@@ -482,11 +488,25 @@ fn preview(content: &str) -> String {
     if content.is_empty() {
         return String::from("Start writing...");
     }
-    let mut text = content.chars().take(50).collect::<String>();
-    if content.chars().count() > 50 {
-        text.push_str("...");
+
+    let mut result = String::new();
+    let mut count = 0usize;
+    let mut truncated = false;
+
+    for ch in content.chars() {
+        if count == 50 {
+            truncated = true;
+            break;
+        }
+        result.push(ch);
+        count += 1;
     }
-    text
+
+    if truncated {
+        result.push_str("...");
+    }
+
+    result
 }
 
 fn clear_loaded_conversation(state: &mut State) {
@@ -495,6 +515,7 @@ fn clear_loaded_conversation(state: &mut State) {
     state.current_title = String::from("Untitled");
     state.editor_content = text_editor::Content::new();
     state.markdown_items = Vec::new();
+    state.markdown_dirty = false;
     state.grammar_lints = Vec::new();
     state.last_checked_text.clear();
 }
@@ -520,10 +541,6 @@ fn set_shortcuts_help_open(state: &mut State, open: bool) {
 
     state.shortcuts_help_open = open;
     state.shortcuts_help_animation.go_mut(open, state.now);
-}
-
-fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
-    modifiers.logo() || modifiers.control()
 }
 
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
@@ -558,7 +575,6 @@ fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {
 }
 
 fn schedule_autosave_task(state: &mut State) -> Task<Message> {
-    const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1200);
     state.autosave_generation = state.autosave_generation.saturating_add(1);
     let generation = state.autosave_generation;
     Task::perform(
@@ -571,7 +587,6 @@ fn schedule_autosave_task(state: &mut State) -> Task<Message> {
 }
 
 fn schedule_grammar_check_task(state: &mut State, content: String) -> Task<Message> {
-    const GRAMMAR_CHECK_DEBOUNCE: Duration = Duration::from_millis(350);
     state.grammar_check_generation = state.grammar_check_generation.saturating_add(1);
     let generation = state.grammar_check_generation;
     Task::perform(
@@ -584,6 +599,18 @@ fn schedule_grammar_check_task(state: &mut State, content: String) -> Task<Messa
             content,
         },
     )
+}
+
+fn parse_markdown_if_needed(state: &mut State) {
+    if !state.markdown_dirty {
+        return;
+    }
+    if matches!(state.view_mode, ViewMode::RawCode) {
+        return;
+    }
+
+    state.markdown_items = markdown::parse(&state.last_checked_text).collect();
+    state.markdown_dirty = false;
 }
 
 fn strip_trailing_shortcut_char(value: &mut String, shortcut_char: char) -> bool {

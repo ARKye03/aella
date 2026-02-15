@@ -5,9 +5,15 @@ use iced::widget::{button, column, container, row, scrollable, svg, text, text_i
 use iced::{Center, Color, Element, Fill};
 
 const PLUS_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/plus.svg");
+const SIDEBAR_WIDTH_COLLAPSED: u32 = 60;
+const SIDEBAR_WIDTH_EXPANDED: u32 = 300;
 
 pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
-    let sidebar_width = if state.sidebar_collapsed { 60 } else { 300 };
+    let sidebar_width = if state.sidebar_collapsed {
+        SIDEBAR_WIDTH_COLLAPSED
+    } else {
+        SIDEBAR_WIDTH_EXPANDED
+    };
 
     let toggle_icon = if state.sidebar_collapsed {
         "☰"
@@ -143,19 +149,14 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
     } else {
         &state.conversations
     };
+    let search_query = state.search_query.trim().to_lowercase();
 
     let filtered_conversations: Vec<_> = source_conversations
         .iter()
         .filter(|conv| {
-            state.search_query.is_empty()
-                || conv
-                    .title
-                    .to_lowercase()
-                    .contains(&state.search_query.to_lowercase())
-                || conv
-                    .preview
-                    .to_lowercase()
-                    .contains(&state.search_query.to_lowercase())
+            search_query.is_empty()
+                || conv.title.to_lowercase().contains(&search_query)
+                || conv.preview.to_lowercase().contains(&search_query)
         })
         .collect();
 

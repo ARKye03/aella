@@ -15,7 +15,12 @@ impl Database {
 
         if !cfg!(debug_assertions) {
             if let Some(parent) = db_path.parent() {
-                std::fs::create_dir_all(parent).expect("Failed to create database directory");
+                if let Err(err) = std::fs::create_dir_all(parent) {
+                    eprintln!(
+                        "[aella] failed to create database directory {}: {err}",
+                        parent.display()
+                    );
+                }
             }
         }
 

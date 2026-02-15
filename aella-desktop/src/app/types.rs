@@ -46,6 +46,7 @@ pub(crate) struct State {
     pub(crate) last_checked_text: String, // Track last text to avoid redundant grammar checks
     pub(crate) autosave_generation: u64,
     pub(crate) grammar_check_generation: u64,
+    pub(crate) markdown_dirty: bool,
 }
 
 impl Default for State {
@@ -86,6 +87,7 @@ impl Default for State {
             last_checked_text: initial_text.to_string(),
             autosave_generation: 0,
             grammar_check_generation: 0,
+            markdown_dirty: false,
         }
     }
 }

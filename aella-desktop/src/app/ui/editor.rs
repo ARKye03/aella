@@ -1,3 +1,4 @@
+use crate::app::primary_shortcut_modifier_pressed;
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{container_bg, outlined_container_bg};
 use harper_core::linting::{Lint, LintKind};
@@ -10,6 +11,8 @@ use iced::{Element, Fill};
 use std::ops::Range;
 
 const APPLY_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/apply.svg");
+const PANEL_HEIGHT_COLLAPSED: u32 = 40;
+const PANEL_HEIGHT_EXPANDED: u32 = 200;
 
 pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let title_input = text_input("Conversation title", &state.current_title)
@@ -115,9 +118,9 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     };
 
     let panel_height = if state.errors_panel_collapsed {
-        40
+        PANEL_HEIGHT_COLLAPSED
     } else {
-        200
+        PANEL_HEIGHT_EXPANDED
     };
 
     let toggle_icon = if state.errors_panel_collapsed {
@@ -250,7 +253,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
 
 fn build_raw_editor(state: &State) -> Element<'_, Message> {
     let highlight_settings =
-        build_lint_highlight_settings(&state.editor_content.text(), &state.grammar_lints);
+        build_lint_highlight_settings(&state.last_checked_text, &state.grammar_lints);
     let editor = text_editor(&state.editor_content)
         .on_action(Message::EditorAction)
         .key_binding(|key_press| {
@@ -415,10 +418,6 @@ fn is_app_shortcut_keypress(key_press: &text_editor::KeyPress) -> bool {
             | keyboard::key::Physical::Code(keyboard::key::Code::Digit3)
             | keyboard::key::Physical::Code(keyboard::key::Code::KeyK)
     )
-}
-
-fn primary_shortcut_modifier_pressed(modifiers: keyboard::Modifiers) -> bool {
-    modifiers.logo() || modifiers.control()
 }
 
 fn lint_highlight_format(

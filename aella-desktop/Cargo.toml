@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 harper-core = { workspace = true }
-iced = { workspace = true }
+iced = { workspace = true, features = ["debug"] }
 tokio = { workspace = true }
 turso = { workspace = true }
 dirs = { workspace = true }
@@ -15,9 +15,6 @@ image = "0.25.9"
 [package.metadata.bundle]
 name = "Aella"
 identifier = "com.arkye03.aella"
-icon = [
-    "assets/aella.icns",
-    "assets/aellaWindowsIcon.ico",
-]
+icon = ["assets/aella.icns", "assets/aellaWindowsIcon.ico"]
 short_description = "Aella grammar checker"
 category = "Productivity"

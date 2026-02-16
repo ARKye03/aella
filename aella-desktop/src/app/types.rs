@@ -107,6 +107,7 @@ impl Default for State {
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
     KeyboardEvent(keyboard::Event),
+    FocusSidebarSearch,
     SearchChanged(String),
     TitleChanged(String),
     SaveTitle,

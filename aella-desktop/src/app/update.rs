@@ -18,6 +18,7 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+use std::time::Duration;
 
 thread_local! {
     static GRAMMAR_LINTER_CACHE: RefCell<Option<LintGroup>> = const { RefCell::new(None) };
@@ -58,7 +59,16 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 match character {
                     'f' => {
                         remove_shortcut_text_input_artifact(state, character);
+                        let was_collapsed = state.sidebar_collapsed;
                         set_sidebar_collapsed(state, false);
+                        if was_collapsed {
+                            return Task::perform(
+                                async move {
+                                    tokio::time::sleep(Duration::from_millis(240)).await;
+                                },
+                                |_| Message::FocusSidebarSearch,
+                            );
+                        }
                         return operation::focus(sidebar_search_input_id());
                     }
                     '1' => {
@@ -106,6 +116,11 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::KeyboardEvent(_) => {}
+        Message::FocusSidebarSearch => {
+            if !state.sidebar_collapsed {
+                return operation::focus(sidebar_search_input_id());
+            }
+        }
         Message::SearchChanged(query) => {
             state.search_query = query;
         }

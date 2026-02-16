@@ -81,6 +81,7 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                             text(conv.title.clone()),
                             tooltip::Position::Right,
                         )
+                        .gap(12)
                         .padding(8)
                         .style(tooltip_container_style)
                         .into()
@@ -95,6 +96,7 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
             text("Toggle Sidebar View"),
             tooltip::Position::Right,
         )
+        .gap(12)
         .padding(8)
         .style(tooltip_container_style);
         let add_with_tooltip = tooltip(
@@ -102,6 +104,7 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
             text("Add new conversation"),
             tooltip::Position::Right,
         )
+        .gap(12)
         .padding(8)
         .style(tooltip_container_style);
 

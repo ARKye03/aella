@@ -15,8 +15,8 @@ image = "0.25.9"
 name = "Aella"
 identifier = "com.arkye03.aella"
 icon = [
-    "assets/aella.icns",
-    "assets/aellaWindowsIcon.ico",
+    "aella-desktop/assets/aella.icns",
+    "aella-desktop/assets/aellaWindowsIcon.ico",
 ]
 short_description = "Aella grammar checker"
 category = "Productivity"

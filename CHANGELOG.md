@@ -3,6 +3,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Update cargo-bundle version in GitHub Actions workflow to 0.9.0
+- Prevent double vv
 ## [0.1.0] - 2026-02-16
 
 ### 🚀 Features

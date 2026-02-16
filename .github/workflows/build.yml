@@ -7,8 +7,20 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
+# Prevent concurrent builds on the same ref
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+# Principle of least privilege
+permissions:
+  contents: read
+
 jobs:
   build:
+    permissions:
+      contents: read
+
     strategy:
       fail-fast: false
       matrix:
@@ -31,26 +43,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.target }}-release
 
       - name: Install cargo-bundle
-        run: cargo install cargo-bundle
+        run: cargo install cargo-bundle --locked --version 0.6.0
 
       - name: Build bundle
         run: cargo bundle -p aella-desktop --release
@@ -66,6 +65,7 @@ jobs:
         shell: bash
         run: |
           MSI_PATH=$(find target/release/bundle/msi -name "*.msi" -type f | head -n 1)
+          test -n "$MSI_PATH" || { echo "Error: MSI not found"; exit 1; }
           echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
           cp "$MSI_PATH" "${{ matrix.artifact_name }}"
 
@@ -80,6 +80,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -106,12 +109,19 @@ jobs:
         with:
           name: Aella-Windows.msi
 
+      - name: Generate checksums
+        run: |
+          sha256sum Aella-macOS.app.tar.gz > Aella-macOS.app.tar.gz.sha256
+          sha256sum Aella-Windows.msi > Aella-Windows.msi.sha256
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             Aella-macOS.app.tar.gz
+            Aella-macOS.app.tar.gz.sha256
             Aella-Windows.msi
+            Aella-Windows.msi.sha256
           body_path: release-notes.md
           draft: false
           prerelease: false

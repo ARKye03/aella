@@ -14,13 +14,16 @@ const SIDEBAR_WIDTH_COLLAPSED: u32 = 76;
 const SIDEBAR_WIDTH_EXPANDED: u32 = 312;
 
 pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
-    let sidebar_width = if state.sidebar_collapsed {
-        SIDEBAR_WIDTH_COLLAPSED
-    } else {
-        SIDEBAR_WIDTH_EXPANDED
-    };
+    let collapse_progress = state
+        .sidebar_animation
+        .interpolate(0.0_f32, 1.0_f32, state.now)
+        .clamp(0.0, 1.0);
+    let width_span = (SIDEBAR_WIDTH_EXPANDED - SIDEBAR_WIDTH_COLLAPSED) as f32;
+    let sidebar_width =
+        (SIDEBAR_WIDTH_EXPANDED as f32 - (width_span * collapse_progress)).round() as u32;
+    let use_compact_layout = sidebar_width <= 118;
 
-    if state.sidebar_collapsed {
+    if use_compact_layout {
         let menu_icon = svg(MENU_ICON_PATH)
             .width(28)
             .height(28)

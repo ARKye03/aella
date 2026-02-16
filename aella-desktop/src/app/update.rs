@@ -58,7 +58,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                 match character {
                     'f' => {
                         remove_shortcut_text_input_artifact(state, character);
-                        state.sidebar_collapsed = false;
+                        set_sidebar_collapsed(state, false);
                         return operation::focus(sidebar_search_input_id());
                     }
                     '1' => {
@@ -78,7 +78,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
                         if modifiers.shift() {
                             state.errors_panel_collapsed = !state.errors_panel_collapsed;
                         } else {
-                            state.sidebar_collapsed = !state.sidebar_collapsed;
+                            set_sidebar_collapsed(state, !state.sidebar_collapsed);
                         }
                     }
                     'n' => {
@@ -265,7 +265,7 @@ pub(crate) fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::ToggleSidebar => {
-            state.sidebar_collapsed = !state.sidebar_collapsed;
+            set_sidebar_collapsed(state, !state.sidebar_collapsed);
         }
         Message::SetViewMode(mode) => {
             state.view_mode = mode;
@@ -546,6 +546,16 @@ fn set_shortcuts_help_open(state: &mut State, open: bool) {
 
     state.shortcuts_help_open = open;
     state.shortcuts_help_animation.go_mut(open, state.now);
+}
+
+fn set_sidebar_collapsed(state: &mut State, collapsed: bool) {
+    if state.sidebar_collapsed == collapsed {
+        return;
+    }
+
+    state.now = std::time::Instant::now();
+    state.sidebar_collapsed = collapsed;
+    state.sidebar_animation.go_mut(collapsed, state.now);
 }
 
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {

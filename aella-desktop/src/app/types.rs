@@ -35,6 +35,7 @@ pub(crate) struct State {
     pub(crate) current_title: String,
     pub(crate) editor_content: text_editor::Content,
     pub(crate) sidebar_collapsed: bool,
+    pub(crate) sidebar_animation: Animation<bool>,
     pub(crate) linter: LintGroup,
     pub(crate) grammar_lints: Vec<harper_core::linting::Lint>,
     pub(crate) view_mode: ViewMode,
@@ -75,6 +76,9 @@ impl Default for State {
             current_title: String::from("Untitled"),
             editor_content: text_editor::Content::with_text(initial_text),
             sidebar_collapsed: false,
+            sidebar_animation: Animation::new(false)
+                .duration(std::time::Duration::from_millis(220))
+                .easing(Easing::EaseOutCubic),
             linter,
             grammar_lints,
             view_mode: ViewMode::BothViews,

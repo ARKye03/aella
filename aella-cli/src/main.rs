@@ -120,18 +120,15 @@ async fn handle_check(
             None
         };
 
-        let _ = db
-            .create_cli_run(
-                &input_source,
-                input_text.len(),
-                result.corrected_text.len(),
-                result.corrections_count,
-                result.passes_count,
-                execution_time,
-                original,
-                corrected,
-            )
-            .await;
+        let metrics = aella_core::CliRunMetrics {
+            input_source: &input_source,
+            input_length: input_text.len(),
+            output_length: result.corrected_text.len(),
+            corrections_count: result.corrections_count,
+            passes_count: result.passes_count,
+            execution_time_ms: execution_time,
+        };
+        let _ = db.create_cli_run(&metrics, original, corrected).await;
     }
 
     // Output results

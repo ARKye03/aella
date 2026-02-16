@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use turso::{Builder, Connection, Result};
 
-use crate::types::{CliRun, ConversationData};
+use crate::types::{CliRun, CliRunMetrics, ConversationData};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -240,12 +240,7 @@ impl Database {
 
     pub async fn create_cli_run(
         &self,
-        input_source: &str,
-        input_length: usize,
-        output_length: usize,
-        corrections_count: usize,
-        passes_count: usize,
-        execution_time_ms: u64,
+        metrics: &CliRunMetrics<'_>,
         original_text: Option<&str>,
         corrected_text: Option<&str>,
     ) -> Result<i64> {
@@ -256,12 +251,12 @@ impl Database {
                     passes_count, execution_time_ms, original_text, corrected_text)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
                 (
-                    input_source,
-                    input_length as i64,
-                    output_length as i64,
-                    corrections_count as i64,
-                    passes_count as i64,
-                    execution_time_ms as i64,
+                    metrics.input_source,
+                    metrics.input_length as i64,
+                    metrics.output_length as i64,
+                    metrics.corrections_count as i64,
+                    metrics.passes_count as i64,
+                    metrics.execution_time_ms as i64,
                     original_text,
                     corrected_text,
                 ),
@@ -312,8 +307,8 @@ impl Database {
                     .as_text()
                     .unwrap_or(&String::new())
                     .clone(),
-                original_text: row.get_value(8)?.as_text().map(|s| s.clone()),
-                corrected_text: row.get_value(9)?.as_text().map(|s| s.clone()),
+                original_text: row.get_value(8)?.as_text().cloned(),
+                corrected_text: row.get_value(9)?.as_text().cloned(),
             });
         }
 

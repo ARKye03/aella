@@ -551,13 +551,14 @@ fn lint_highlight_format(
     highlight: &LintHighlight,
     _theme: &iced::Theme,
 ) -> iced_core::text::highlighter::Format<iced::Font> {
-    let mut format = iced_core::text::highlighter::Format::default();
-    format.color = Some(match highlight {
-        LintHighlight::Error => iced::Color::from_rgb(0.98, 0.35, 0.35),
-        LintHighlight::Warning => iced::Color::from_rgb(1.0, 0.78, 0.35),
-        LintHighlight::Suggestion => iced::Color::from_rgb(0.45, 0.82, 1.0),
-    });
-    format
+    iced_core::text::highlighter::Format {
+        color: Some(match highlight {
+            LintHighlight::Error => iced::Color::from_rgb(0.98, 0.35, 0.35),
+            LintHighlight::Warning => iced::Color::from_rgb(1.0, 0.78, 0.35),
+            LintHighlight::Suggestion => iced::Color::from_rgb(0.45, 0.82, 1.0),
+        }),
+        ..Default::default()
+    }
 }
 
 fn lint_level_from_kind(kind: LintKind) -> LintHighlight {

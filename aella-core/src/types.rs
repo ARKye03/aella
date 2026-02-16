@@ -20,3 +20,13 @@ pub struct CliRun {
     pub original_text: Option<String>,
     pub corrected_text: Option<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct CliRunMetrics<'a> {
+    pub input_source: &'a str,
+    pub input_length: usize,
+    pub output_length: usize,
+    pub corrections_count: usize,
+    pub passes_count: usize,
+    pub execution_time_ms: u64,
+}

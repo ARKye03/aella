@@ -2,8 +2,8 @@ name: Test
 
 on:
   push:
-  pull_request:
     branches: [trunk]
+  pull_request:
 
 jobs:
   test:

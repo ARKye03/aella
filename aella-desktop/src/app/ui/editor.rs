@@ -90,6 +90,13 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                 markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
                     .map(Message::MarkdownLinkClicked),
             )
+            .direction(scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new()
+                    .width(8)
+                    .scroller_width(8)
+                    .margin(2)
+                    .spacing(10),
+            ))
             .height(Fill);
 
             row![
@@ -108,6 +115,13 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                 markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
                     .map(Message::MarkdownLinkClicked),
             )
+            .direction(scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new()
+                    .width(8)
+                    .scroller_width(8)
+                    .margin(2)
+                    .spacing(10),
+            ))
             .height(Fill);
 
             container(rendered)

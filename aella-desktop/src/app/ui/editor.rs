@@ -84,10 +84,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     .padding([12, 18]);
 
     let editor_content: Element<'_, Message> = match state.view_mode {
-        ViewMode::RawCode => container(build_raw_editor(state))
-            .height(Fill)
-            .padding([8, 12])
-            .into(),
+        ViewMode::RawCode => build_raw_editor(state),
         ViewMode::BothViews => {
             let rendered = scrollable(
                 markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
@@ -104,7 +101,6 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                     .style(content_card_style)
             ]
             .spacing(14)
-            .padding([8, 12])
             .into()
         }
         ViewMode::RenderedView => {
@@ -114,16 +110,12 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             )
             .height(Fill);
 
-            container(
-                container(rendered)
-                    .width(Fill)
-                    .height(Fill)
-                    .padding([24, 26])
-                    .style(content_card_style),
-            )
-            .height(Fill)
-            .padding([8, 12])
-            .into()
+            container(rendered)
+                .width(Fill)
+                .height(Fill)
+                .padding([24, 26])
+                .style(content_card_style)
+                .into()
         }
     };
 
@@ -256,9 +248,8 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         container(mode_buttons).width(Fill).style(top_header_style),
         container(editor_content).height(Fill),
         container(suggestions_panel)
+            .width(Fill)
             .height(panel_height)
-            .max_width(620)
-            .center_x(Fill)
             .style(floating_panel_style),
         footer,
     ]

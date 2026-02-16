@@ -1,9 +1,14 @@
 [package]
 name = "aella-cli"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+aella-core = { path = "../aella-core" }
+clap = { version = "4.5.58", features = ["derive"] }
 harper-core = { workspace = true }
 tokio = { workspace = true }
-turso = { workspace = true }
+similar = "2.4"
+colored = "2.1"
+serde_json = "1.0"
+glob = "0.3"

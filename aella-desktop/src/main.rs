@@ -1,5 +1,4 @@
 mod app;
-mod db;
 
 use app::subscription;
 use app::{State, app_title, initialize_database_task, update, view};

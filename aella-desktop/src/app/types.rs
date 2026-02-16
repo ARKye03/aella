@@ -42,6 +42,7 @@ pub(crate) struct State {
     pub(crate) markdown_items: Vec<markdown::Item>,
     pub(crate) cursor_position: (usize, usize), // (line, column)
     pub(crate) errors_panel_collapsed: bool,
+    pub(crate) errors_panel_animation: Animation<bool>,
     pub(crate) shortcuts_help_open: bool,
     pub(crate) shortcuts_help_animation: Animation<bool>,
     pub(crate) now: Instant,
@@ -84,7 +85,10 @@ impl Default for State {
             view_mode: ViewMode::BothViews,
             markdown_items,
             cursor_position: (1, 1),
-            errors_panel_collapsed: false,
+            errors_panel_collapsed: true,
+            errors_panel_animation: Animation::new(true)
+                .duration(std::time::Duration::from_millis(220))
+                .easing(Easing::EaseOutCubic),
             shortcuts_help_open: false,
             shortcuts_help_animation: Animation::new(false)
                 .duration(std::time::Duration::from_millis(180))

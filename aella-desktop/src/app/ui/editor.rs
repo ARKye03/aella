@@ -133,17 +133,16 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         }
     };
 
-    let panel_height = if state.errors_panel_collapsed {
-        PANEL_HEIGHT_COLLAPSED
-    } else {
-        PANEL_HEIGHT_EXPANDED
-    };
+    let collapse_progress = state
+        .errors_panel_animation
+        .interpolate(0.0_f32, 1.0_f32, state.now)
+        .clamp(0.0, 1.0);
+    let panel_span = (PANEL_HEIGHT_EXPANDED - PANEL_HEIGHT_COLLAPSED) as f32;
+    let panel_height =
+        (PANEL_HEIGHT_EXPANDED as f32 - panel_span * collapse_progress).round() as u32;
+    let use_compact_layout = panel_height <= PANEL_HEIGHT_COLLAPSED + 18;
 
-    let toggle_icon = if state.errors_panel_collapsed {
-        "▲"
-    } else {
-        "▼"
-    };
+    let toggle_icon = if use_compact_layout { "▲" } else { "▼" };
     let issue_count = state.grammar_lints.len();
     let status_text = if issue_count == 0 {
         "No issues found ✓".to_string()
@@ -165,7 +164,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     .spacing(12)
     .align_y(iced::Center);
 
-    let suggestions_panel = if state.errors_panel_collapsed {
+    let suggestions_panel = if use_compact_layout {
         container(panel_header).padding(12).width(Fill)
     } else if state.grammar_lints.is_empty() {
         container(

@@ -8,6 +8,8 @@ use iced::widget::{button, column, container, row, scrollable, svg, text, text_i
 use iced::{Center, Color, Element, Fill};
 
 const PLUS_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/plus.svg");
+const MENU_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/menu.svg");
+const ARROW_LEFT_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/arrowLeft.svg");
 const SIDEBAR_WIDTH_COLLAPSED: u32 = 76;
 const SIDEBAR_WIDTH_EXPANDED: u32 = 312;
 
@@ -18,18 +20,20 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
         SIDEBAR_WIDTH_EXPANDED
     };
 
-    let toggle_icon = if state.sidebar_collapsed {
-        "☰"
-    } else {
-        "←"
-    };
-    let toggle_button = button(text(toggle_icon).size(20).align_x(Center))
-        .on_press(Message::ToggleSidebar)
-        .width(Fill)
-        .padding(12)
-        .style(sidebar_toggle_button_style);
-
     if state.sidebar_collapsed {
+        let menu_icon = svg(MENU_ICON_PATH)
+            .width(28)
+            .height(28)
+            .style(|_theme, _status| svg::Style {
+                color: Some(Color::WHITE),
+            });
+        let toggle_button = button(container(menu_icon).center_x(Fill).center_y(Fill))
+            .on_press(Message::ToggleSidebar)
+            .width(Fill)
+            .height(52)
+            .padding(0)
+            .style(sidebar_toggle_button_style);
+
         let plus_icon = svg(PLUS_ICON_PATH)
             .width(20)
             .height(20)
@@ -108,6 +112,27 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
             .style(sidebar_shell_style)
             .into();
     }
+
+    let arrow_left_icon =
+        svg(ARROW_LEFT_ICON_PATH)
+            .width(24)
+            .height(24)
+            .style(|_theme, _status| svg::Style {
+                color: Some(Color::WHITE),
+            });
+    let toggle_button = button(
+        row![
+            arrow_left_icon,
+            text("Aella").size(16).align_x(Center),
+            container(text("")).width(Fill)
+        ]
+        .align_y(Center)
+        .spacing(10),
+    )
+    .on_press(Message::ToggleSidebar)
+    .width(Fill)
+    .padding([13, 16])
+    .style(sidebar_toggle_button_style);
 
     let search = text_input("Search conversations...", &state.search_query)
         .id(sidebar_search_input_id())

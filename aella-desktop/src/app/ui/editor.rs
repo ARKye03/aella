@@ -10,10 +10,11 @@ use iced::widget::text::Highlighter;
 use iced::widget::{
     button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input,
 };
-use iced::{Element, Fill};
+use iced::{Element, Fill, Radians, Rotation};
 use std::ops::Range;
 
 const APPLY_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/apply.svg");
+const PANEL_ARROW_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/arrowBig.svg");
 const PANEL_HEIGHT_COLLAPSED: u32 = 40;
 const PANEL_HEIGHT_EXPANDED: u32 = 200;
 
@@ -142,7 +143,18 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         (PANEL_HEIGHT_EXPANDED as f32 - panel_span * collapse_progress).round() as u32;
     let use_compact_layout = panel_height <= PANEL_HEIGHT_COLLAPSED + 18;
 
-    let toggle_icon = if use_compact_layout { "▲" } else { "▼" };
+    let open_progress = 1.0 - collapse_progress;
+    let arrow_rotation_radians = std::f32::consts::PI * open_progress;
+    let arrow_size = if use_compact_layout { 20 } else { 22 };
+    let arrow_hit_area = if use_compact_layout { 26 } else { 28 };
+    let arrow_button_padding = if use_compact_layout { [2, 4] } else { [4, 8] };
+    let toggle_icon = svg(PANEL_ARROW_ICON_PATH)
+        .width(arrow_size)
+        .height(arrow_size)
+        .rotation(Rotation::Floating(Radians(arrow_rotation_radians)))
+        .style(|_theme, _status| svg::Style {
+            color: Some(iced::Color::WHITE),
+        });
     let issue_count = state.grammar_lints.len();
     let status_text = if issue_count == 0 {
         "No issues found ✓".to_string()
@@ -156,10 +168,14 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         } else {
             [1.0, 0.84, 0.58]
         }),
-        button(text(toggle_icon).size(12))
-            .on_press(Message::ToggleErrorsPanel)
-            .padding([4, 8])
-            .style(ghost_button_style),
+        button(
+            container(toggle_icon)
+                .center_x(arrow_hit_area)
+                .center_y(arrow_hit_area),
+        )
+        .on_press(Message::ToggleErrorsPanel)
+        .padding(arrow_button_padding)
+        .style(ghost_button_style),
     ]
     .spacing(12)
     .align_y(iced::Center);

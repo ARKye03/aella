@@ -3,6 +3,8 @@ name: Build Desktop App
 on:
   push:
     branches: [trunk]
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches: [trunk]
   workflow_dispatch:

@@ -3,7 +3,7 @@ use crate::app::{
     AUTOSAVE_DEBOUNCE, GRAMMAR_CHECK_DEBOUNCE, primary_shortcut_modifier_pressed,
     sidebar_search_input_id,
 };
-use crate::db::Database;
+use aella_core::Database;
 use harper_core::Dialect;
 use harper_core::Document;
 use harper_core::linting::{Lint, LintGroup, Linter};
@@ -696,7 +696,7 @@ fn dismiss_single_lint(state: &mut State, lint_index: usize) {
     state.grammar_lints.remove(lint_index);
 }
 
-fn conversation_from_db(conv: &crate::db::ConversationData) -> Conversation {
+fn conversation_from_db(conv: &aella_core::ConversationData) -> Conversation {
     let preview = preview(&conv.content);
     Conversation {
         id: conv.id,

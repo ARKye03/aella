@@ -1,4 +1,4 @@
-use crate::db::{ConversationData, Database};
+use aella_core::{ConversationData, Database};
 use harper_core::Dialect;
 use harper_core::Document;
 use harper_core::linting::{LintGroup, Linter};

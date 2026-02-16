@@ -1,5 +1,5 @@
 [workspace]
-members = ["aella-desktop", "aella-cli"]
+members = ["aella-core", "aella-desktop", "aella-cli"]
 resolver = "2"
 
 [workspace.dependencies]

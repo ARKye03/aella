@@ -6,7 +6,6 @@ Your friendly neighborhood grammar checker, built for speed and simplicity.
 
 Aella is a blazing fast grammar checking app powered by `harper-core`. Whether you prefer a sleek desktop experience or the command line, we've got you covered.
 
-
 ### Backstory
 
 I work 5 to 6 days at week as a developer, constantly changing code, adding features, well, the usual.

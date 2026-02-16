@@ -29,7 +29,10 @@ pub(crate) fn subscription(state: &State) -> Subscription<Message> {
         _ => None,
     });
 
-    if state.shortcuts_help_animation.is_animating(state.now) {
+    if state.shortcuts_help_animation.is_animating(state.now)
+        || state.sidebar_animation.is_animating(state.now)
+        || state.errors_panel_animation.is_animating(state.now)
+    {
         return Subscription::batch([
             events,
             time::every(ANIMATION_TICK_INTERVAL).map(Message::Tick),

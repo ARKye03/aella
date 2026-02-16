@@ -253,6 +253,42 @@ pub(crate) fn danger_button_style(_theme: &iced::Theme, status: button::Status) 
     style
 }
 
+pub(crate) fn title_trash_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+) -> button::Style {
+    let mut style = button::Style {
+        text_color: TEXT_LOW,
+        background: Some(Background::Color(Color::TRANSPARENT)),
+        border: Border {
+            width: 1.0,
+            color: with_alpha(BORDER_SUBTLE, 0.0),
+            radius: 9.0.into(),
+        },
+        ..Default::default()
+    };
+
+    if matches!(status, button::Status::Hovered) {
+        style.text_color = Color::from_rgb(1.0, 0.79, 0.79);
+        style.background = Some(Background::Color(with_alpha(
+            Color::from_rgb(0.62, 0.18, 0.22),
+            0.2,
+        )));
+        style.border.color = with_alpha(Color::from_rgb(0.75, 0.3, 0.35), 0.6);
+    }
+
+    if matches!(status, button::Status::Pressed) {
+        style.text_color = Color::from_rgb(1.0, 0.84, 0.84);
+        style.background = Some(Background::Color(with_alpha(
+            Color::from_rgb(0.62, 0.18, 0.22),
+            0.34,
+        )));
+        style.border.color = with_alpha(Color::from_rgb(0.82, 0.34, 0.39), 0.76);
+    }
+
+    style
+}
+
 pub(crate) fn command_input_style(
     _theme: &iced::Theme,
     status: text_input::Status,

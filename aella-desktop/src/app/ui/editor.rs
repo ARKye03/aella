@@ -1,9 +1,9 @@
 use crate::app::primary_shortcut_modifier_pressed;
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{
-    TEXT_LOW, content_card_style, danger_button_style, document_title_input_style,
-    floating_panel_style, footer_style, ghost_button_style, raw_editor_style,
-    segmented_button_style, top_header_style,
+    TEXT_LOW, content_card_style, document_title_input_style, floating_panel_style, footer_style,
+    ghost_button_style, raw_editor_style, segmented_button_style, title_trash_button_style,
+    top_header_style,
 };
 use harper_core::linting::{Lint, LintKind};
 use iced::keyboard;
@@ -16,6 +16,7 @@ use std::ops::Range;
 
 const APPLY_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/apply.svg");
 const PANEL_ARROW_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/arrowBig.svg");
+const TRASH_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/trash.svg");
 const PANEL_HEIGHT_COLLAPSED: u32 = 40;
 const PANEL_HEIGHT_EXPANDED: u32 = 200;
 
@@ -38,10 +39,20 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             .color(TEXT_LOW)
             .into()
     } else if let Some(id) = state.selected_conversation {
-        button(text("Move to Trash").size(12))
+        let trash_icon = svg(TRASH_ICON_PATH)
+            .width(18)
+            .height(18)
+            .style(|_theme, status| svg::Style {
+                color: Some(match status {
+                    svg::Status::Hovered => iced::Color::from_rgb(1.0, 0.78, 0.78),
+                    svg::Status::Idle => TEXT_LOW,
+                }),
+            });
+
+        button(container(trash_icon).center_x(32).center_y(32))
             .on_press(Message::MoveConversationToTrash(id))
-            .padding([8, 10])
-            .style(danger_button_style)
+            .padding(0)
+            .style(title_trash_button_style)
             .into()
     } else {
         text("").into()

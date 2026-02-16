@@ -494,16 +494,14 @@ fn preview(content: &str) -> String {
     }
 
     let mut result = String::new();
-    let mut count = 0usize;
     let mut truncated = false;
 
-    for ch in content.chars() {
+    for (count, ch) in content.chars().enumerate() {
         if count == 50 {
             truncated = true;
             break;
         }
         result.push(ch);
-        count += 1;
     }
 
     if truncated {
@@ -731,83 +729,6 @@ fn normalize_for_search(text: &str) -> String {
     text.trim().to_lowercase()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{filter_dismissed_lints, lint_dismiss_key, should_run_grammar_check};
-    use crate::app::types::State;
-    use harper_core::Span;
-    use harper_core::linting::{Lint, LintKind};
-    use iced::widget::text_editor;
-
-    fn lint_with_message(message: &str, span: std::ops::Range<usize>) -> Lint {
-        Lint {
-            message: message.to_string(),
-            span: Span::from(span),
-            lint_kind: LintKind::Grammar,
-            ..Lint::default()
-        }
-    }
-
-    #[test]
-    fn debounce_gate_accepts_current_payload() {
-        let mut state = State::default();
-        state.grammar_check_generation = 42;
-        state.last_checked_text = String::from("old");
-        state.editor_content = text_editor::Content::with_text("new");
-
-        assert!(should_run_grammar_check(&state, 42, "new"));
-    }
-
-    #[test]
-    fn debounce_gate_rejects_stale_generation() {
-        let mut state = State::default();
-        state.grammar_check_generation = 42;
-        state.last_checked_text = String::from("old");
-        state.editor_content = text_editor::Content::with_text("new");
-
-        assert!(!should_run_grammar_check(&state, 41, "new"));
-    }
-
-    #[test]
-    fn debounce_gate_rejects_already_checked_content() {
-        let mut state = State::default();
-        state.grammar_check_generation = 42;
-        state.last_checked_text = String::from("new");
-        state.editor_content = text_editor::Content::with_text("new");
-
-        assert!(!should_run_grammar_check(&state, 42, "new"));
-    }
-
-    #[test]
-    fn debounce_gate_rejects_if_editor_moved_on() {
-        let mut state = State::default();
-        state.grammar_check_generation = 42;
-        state.last_checked_text = String::from("old");
-        state.editor_content = text_editor::Content::with_text("newest");
-
-        assert!(!should_run_grammar_check(&state, 42, "new"));
-    }
-
-    #[test]
-    fn filters_user_dismissed_lints_only() {
-        let content = "This sentence is very long. Keep this.";
-        let dismissed = lint_with_message("This sentence is 334 words long.", 0..27);
-        let kept = lint_with_message("Use a comma after introductory phrase.", 28..38);
-
-        let mut state = State::default();
-        let key = lint_dismiss_key(&dismissed, content);
-        state.dismissed_lint_keys.insert(key);
-
-        let filtered = filter_dismissed_lints(
-            &state.dismissed_lint_keys,
-            content,
-            vec![dismissed, kept.clone()],
-        );
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].message, kept.message);
-    }
-}
-
 fn strip_trailing_shortcut_char(value: &mut String, shortcut_char: char) -> bool {
     let mut chars = value.chars();
     let Some(last) = chars.next_back() else {
@@ -901,4 +822,89 @@ fn set_content_and_relint(state: &mut State, content: String) {
         state.linter.lint(&document),
     );
     state.last_checked_text = content;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{filter_dismissed_lints, lint_dismiss_key, should_run_grammar_check};
+    use crate::app::types::State;
+    use harper_core::Span;
+    use harper_core::linting::{Lint, LintKind};
+    use iced::widget::text_editor;
+
+    fn lint_with_message(message: &str, span: std::ops::Range<usize>) -> Lint {
+        Lint {
+            message: message.to_string(),
+            span: Span::from(span),
+            lint_kind: LintKind::Grammar,
+            ..Lint::default()
+        }
+    }
+
+    #[test]
+    fn debounce_gate_accepts_current_payload() {
+        let state = State {
+            grammar_check_generation: 42,
+            last_checked_text: String::from("old"),
+            editor_content: text_editor::Content::with_text("new"),
+            ..State::default()
+        };
+
+        assert!(should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_stale_generation() {
+        let state = State {
+            grammar_check_generation: 42,
+            last_checked_text: String::from("old"),
+            editor_content: text_editor::Content::with_text("new"),
+            ..State::default()
+        };
+
+        assert!(!should_run_grammar_check(&state, 41, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_already_checked_content() {
+        let state = State {
+            grammar_check_generation: 42,
+            last_checked_text: String::from("new"),
+            editor_content: text_editor::Content::with_text("new"),
+            ..State::default()
+        };
+
+        assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn debounce_gate_rejects_if_editor_moved_on() {
+        let state = State {
+            grammar_check_generation: 42,
+            last_checked_text: String::from("old"),
+            editor_content: text_editor::Content::with_text("newest"),
+            ..State::default()
+        };
+
+        assert!(!should_run_grammar_check(&state, 42, "new"));
+    }
+
+    #[test]
+    fn filters_user_dismissed_lints_only() {
+        let content = "This sentence is very long. Keep this.";
+        let dismissed = lint_with_message("This sentence is 334 words long.", 0..27);
+        let kept = lint_with_message("Use a comma after introductory phrase.", 28..38);
+
+        let mut state = State::default();
+        let key = lint_dismiss_key(&dismissed, content);
+        state.dismissed_lint_keys.insert(key);
+
+        let filtered = filter_dismissed_lints(
+            &state.dismissed_lint_keys,
+            content,
+            vec![dismissed, kept.clone()],
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].message, kept.message);
+    }
 }

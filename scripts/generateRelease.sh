@@ -32,6 +32,9 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+# Strip leading 'v' if present (git-cliff may include it)
+VERSION=${VERSION#v}
+
 echo "Next version: $VERSION"
 
 # Update the changelog

@@ -1,5 +1,7 @@
 use crate::app::types::{Message, State};
-use crate::app::ui::styles::{modal_backdrop_style_with_alpha, modal_card_style_with_alpha};
+use crate::app::ui::styles::{
+    app_shell_style, modal_backdrop_style_with_alpha, modal_card_style_with_alpha,
+};
 use crate::app::ui::{editor::build_editor_area, sidebar::build_sidebar};
 use iced::widget::{column, container, mouse_area, opaque, row, stack, text};
 use iced::{Element, Fill};
@@ -7,8 +9,11 @@ use iced::{Element, Fill};
 pub(crate) fn view(state: &State) -> Element<'_, Message> {
     let sidebar = build_sidebar(state);
     let editor_area = build_editor_area(state);
-    let content = row![sidebar, editor_area].spacing(0);
-    let base = container(content).width(Fill).height(Fill);
+    let content = row![sidebar, editor_area].spacing(14).padding(14);
+    let base = container(content)
+        .width(Fill)
+        .height(Fill)
+        .style(app_shell_style);
 
     let transition = state
         .shortcuts_help_animation

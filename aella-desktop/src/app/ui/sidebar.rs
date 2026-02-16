@@ -1,12 +1,15 @@
 use crate::app::sidebar_search_input_id;
 use crate::app::types::{Message, State};
-use crate::app::ui::styles::tooltip_container_style;
+use crate::app::ui::styles::{
+    TEXT_LOW, command_input_style, danger_button_style, ghost_button_style, segmented_button_style,
+    sidebar_item_style, sidebar_shell_style, sidebar_toggle_button_style, tooltip_container_style,
+};
 use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, tooltip};
 use iced::{Center, Color, Element, Fill};
 
 const PLUS_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/plus.svg");
-const SIDEBAR_WIDTH_COLLAPSED: u32 = 60;
-const SIDEBAR_WIDTH_EXPANDED: u32 = 300;
+const SIDEBAR_WIDTH_COLLAPSED: u32 = 76;
+const SIDEBAR_WIDTH_EXPANDED: u32 = 312;
 
 pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
     let sidebar_width = if state.sidebar_collapsed {
@@ -23,7 +26,8 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
     let toggle_button = button(text(toggle_icon).size(20).align_x(Center))
         .on_press(Message::ToggleSidebar)
         .width(Fill)
-        .padding(12);
+        .padding(12)
+        .style(sidebar_toggle_button_style);
 
     if state.sidebar_collapsed {
         let plus_icon = svg(PLUS_ICON_PATH)
@@ -37,7 +41,8 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
             .on_press(Message::NewConversation)
             .width(Fill)
             .height(52)
-            .padding(0);
+            .padding(0)
+            .style(sidebar_toggle_button_style);
 
         let source_conversations = if state.selected_in_trash {
             &state.trashed_conversations
@@ -57,11 +62,9 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                                 .center_y(Fill),
                         )
                         .on_press(Message::ConversationSelected(conv.id))
-                        .style(if state.selected_conversation == Some(conv.id) {
-                            button::primary
-                        } else {
-                            button::secondary
-                        })
+                        .style(sidebar_item_style(
+                            state.selected_conversation == Some(conv.id),
+                        ))
                         .width(Fill)
                         .height(52)
                         .padding(0);
@@ -101,14 +104,16 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
         return container(sidebar_content)
             .width(sidebar_width)
             .height(Fill)
-            .padding(8)
+            .padding(10)
+            .style(sidebar_shell_style)
             .into();
     }
 
     let search = text_input("Search conversations...", &state.search_query)
         .id(sidebar_search_input_id())
         .on_input(Message::SearchChanged)
-        .padding(12);
+        .padding([11, 14])
+        .style(command_input_style);
 
     let plus_icon = svg(PLUS_ICON_PATH)
         .width(20)
@@ -124,23 +129,16 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
     )
     .on_press(Message::NewConversation)
     .width(Fill)
-    .padding([8, 16]);
+    .padding([10, 16])
+    .style(sidebar_toggle_button_style);
 
     let mode_switch = row![
         button(text("Conversations").size(13))
             .on_press(Message::ShowConversations)
-            .style(if state.selected_in_trash {
-                button::secondary
-            } else {
-                button::primary
-            }),
+            .style(segmented_button_style(!state.selected_in_trash)),
         button(text("Trash").size(13))
             .on_press(Message::ShowTrash)
-            .style(if state.selected_in_trash {
-                button::primary
-            } else {
-                button::secondary
-            }),
+            .style(segmented_button_style(state.selected_in_trash)),
     ]
     .spacing(8);
 
@@ -169,17 +167,13 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                     let open_button = button(
                         column![
                             text(&conv.title),
-                            text(&conv.preview).size(12).color([0.6, 0.6, 0.6]),
+                            text(&conv.preview).size(12).color(TEXT_LOW),
                         ]
                         .spacing(4)
                         .padding([12, 12]),
                     )
                     .on_press(Message::ConversationSelected(conv.id))
-                    .style(if is_selected {
-                        button::primary
-                    } else {
-                        button::secondary
-                    })
+                    .style(sidebar_item_style(is_selected))
                     .width(Fill);
 
                     let actions: Element<'_, Message> = if state.selected_in_trash {
@@ -187,11 +181,11 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                             button(text("Restore").size(11))
                                 .on_press(Message::RestoreConversation(conv.id))
                                 .padding([8, 10])
-                                .style(button::primary),
+                                .style(sidebar_toggle_button_style),
                             button(text("Delete").size(11))
                                 .on_press(Message::DeleteConversationPermanently(conv.id))
                                 .padding([8, 10])
-                                .style(button::danger),
+                                .style(danger_button_style),
                         ]
                         .spacing(6)
                         .into()
@@ -199,6 +193,7 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                         button(text("Trash").size(11))
                             .on_press(Message::MoveConversationToTrash(conv.id))
                             .padding([8, 10])
+                            .style(ghost_button_style)
                             .into()
                     };
 
@@ -210,7 +205,7 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                 })
                 .collect::<Vec<_>>(),
         )
-        .spacing(4)
+        .spacing(7)
         .padding([8, 12]),
     );
 
@@ -230,7 +225,8 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
     container(sidebar_content)
         .width(sidebar_width)
         .height(Fill)
-        .padding(8)
+        .padding(10)
+        .style(sidebar_shell_style)
         .into()
 }
 

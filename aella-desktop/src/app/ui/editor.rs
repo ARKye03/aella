@@ -1,6 +1,9 @@
 use crate::app::primary_shortcut_modifier_pressed;
 use crate::app::types::{Message, State, ViewMode};
-use crate::app::ui::styles::{container_bg, outlined_container_bg};
+use crate::app::ui::styles::{
+    TEXT_LOW, command_input_style, content_card_style, danger_button_style, floating_panel_style,
+    footer_style, ghost_button_style, segmented_button_style, top_header_style,
+};
 use harper_core::linting::{Lint, LintKind};
 use iced::keyboard;
 use iced::widget::text::Highlighter;
@@ -18,15 +21,20 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let title_input = text_input("Conversation title", &state.current_title)
         .on_input(Message::TitleChanged)
         .on_submit(Message::SaveTitle)
-        .padding(10)
+        .padding([12, 16])
+        .style(command_input_style)
         .width(Fill);
 
     let title_actions: Element<'_, Message> = if state.selected_in_trash {
-        text("This conversation is in Trash").size(12).into()
+        text("This conversation is in Trash")
+            .size(12)
+            .color(TEXT_LOW)
+            .into()
     } else if let Some(id) = state.selected_conversation {
         button(text("Move to Trash").size(12))
             .on_press(Message::MoveConversationToTrash(id))
             .padding([8, 10])
+            .style(danger_button_style)
             .into()
     } else {
         text("").into()
@@ -34,7 +42,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
 
     let title_bar = row![title_input, title_actions]
         .spacing(8)
-        .padding([8, 16])
+        .padding([14, 18])
         .align_y(iced::Center);
 
     let apply_icon = svg(APPLY_ICON_PATH)
@@ -50,40 +58,36 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             .align_y(iced::Center),
     )
     .on_press_maybe((!state.grammar_lints.is_empty()).then_some(Message::ApplyAllSuggestions))
-    .padding([6, 12]);
+    .padding([8, 12])
+    .style(segmented_button_style(true));
 
     let mode_buttons = row![
         button(text("Raw Code").size(13))
             .on_press(Message::SetViewMode(ViewMode::RawCode))
             .padding([6, 12])
-            .style(if state.view_mode == ViewMode::RawCode {
-                button::primary
-            } else {
-                button::secondary
-            }),
+            .style(segmented_button_style(state.view_mode == ViewMode::RawCode)),
         button(text("Both Views").size(13))
             .on_press(Message::SetViewMode(ViewMode::BothViews))
             .padding([6, 12])
-            .style(if state.view_mode == ViewMode::BothViews {
-                button::primary
-            } else {
-                button::secondary
-            }),
+            .style(segmented_button_style(
+                state.view_mode == ViewMode::BothViews
+            )),
         button(text("Rendered").size(13))
             .on_press(Message::SetViewMode(ViewMode::RenderedView))
             .padding([6, 12])
-            .style(if state.view_mode == ViewMode::RenderedView {
-                button::primary
-            } else {
-                button::secondary
-            }),
+            .style(segmented_button_style(
+                state.view_mode == ViewMode::RenderedView
+            )),
         apply_all_button,
     ]
-    .spacing(8)
-    .padding([12, 16]);
+    .spacing(10)
+    .padding([12, 18]);
 
     let editor_content: Element<'_, Message> = match state.view_mode {
-        ViewMode::RawCode => build_raw_editor(state),
+        ViewMode::RawCode => container(build_raw_editor(state))
+            .height(Fill)
+            .padding([8, 12])
+            .into(),
         ViewMode::BothViews => {
             let rendered = scrollable(
                 markdown::view(&state.markdown_items, iced::Theme::TokyoNight)
@@ -96,10 +100,11 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                 container(rendered)
                     .width(Fill)
                     .height(Fill)
-                    .padding(24)
-                    .style(|theme: &iced::Theme| outlined_container_bg(theme, 0.3, 0.5))
+                    .padding([24, 26])
+                    .style(content_card_style)
             ]
-            .spacing(0)
+            .spacing(14)
+            .padding([8, 12])
             .into()
         }
         ViewMode::RenderedView => {
@@ -109,11 +114,16 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             )
             .height(Fill);
 
-            container(rendered)
-                .width(Fill)
-                .height(Fill)
-                .padding(24)
-                .into()
+            container(
+                container(rendered)
+                    .width(Fill)
+                    .height(Fill)
+                    .padding([24, 26])
+                    .style(content_card_style),
+            )
+            .height(Fill)
+            .padding([8, 12])
+            .into()
         }
     };
 
@@ -137,14 +147,14 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
 
     let panel_header = row![
         text(status_text).size(13).color(if issue_count == 0 {
-            [0.5, 0.8, 0.5]
+            [0.58, 0.86, 0.62]
         } else {
-            [1.0, 0.8, 0.5]
+            [1.0, 0.84, 0.58]
         }),
         button(text(toggle_icon).size(12))
             .on_press(Message::ToggleErrorsPanel)
             .padding([4, 8])
-            .style(button::text),
+            .style(ghost_button_style),
     ]
     .spacing(12)
     .align_y(iced::Center);
@@ -155,13 +165,11 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         container(
             column![
                 panel_header,
-                text("Your grammar is perfect!")
-                    .size(12)
-                    .color([0.7, 0.7, 0.7])
+                text("Your grammar is perfect!").size(12).color(TEXT_LOW)
             ]
             .spacing(8),
         )
-        .padding(12)
+        .padding([12, 14])
         .width(Fill)
     } else {
         let lint_list = column(
@@ -184,10 +192,12 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                                 .first()
                                 .map(|_| Message::ApplyLintSuggestion(index)),
                         )
-                        .padding([4, 8]);
+                        .padding([6, 10])
+                        .style(segmented_button_style(true));
                     let dismiss_button = button(text("Dismiss").size(11))
                         .on_press(Message::DismissLint(index))
-                        .padding([4, 8]);
+                        .padding([6, 10])
+                        .style(ghost_button_style);
 
                     Element::from(
                         column![
@@ -198,10 +208,10 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                             ]
                             .align_y(iced::Center)
                             .spacing(8),
-                            text(suggestion_text).size(12).color([0.7, 0.7, 0.7]),
+                            text(suggestion_text).size(12).color(TEXT_LOW),
                         ]
                         .spacing(4)
-                        .padding([8, 12]),
+                        .padding([10, 12]),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -209,7 +219,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         .spacing(8);
 
         container(column![panel_header, scrollable(lint_list).height(Fill),].spacing(8))
-            .padding(12)
+            .padding([12, 14])
             .width(Fill)
     };
 
@@ -220,13 +230,13 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     };
     let shortcuts_hint = text(format!("Press {shortcut_modifier} + K to show shortcuts"))
         .size(12)
-        .color([0.6, 0.6, 0.6]);
+        .color(TEXT_LOW);
     let cursor_text = text(format!(
         "Ln {}, Col {}",
         state.cursor_position.0, state.cursor_position.1
     ))
     .size(12)
-    .color([0.6, 0.6, 0.6]);
+    .color(TEXT_LOW);
 
     let footer = container(
         row![
@@ -238,22 +248,21 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
         .align_y(iced::Center)
         .spacing(12),
     )
-    .padding([4, 12]);
+    .padding([8, 12])
+    .style(footer_style);
 
     let full_editor_area = column![
-        container(title_bar)
-            .width(Fill)
-            .style(|theme: &iced::Theme| container_bg(theme, 0.35)),
-        container(mode_buttons)
-            .width(Fill)
-            .style(|theme: &iced::Theme| container_bg(theme, 0.5)),
+        container(title_bar).width(Fill).style(top_header_style),
+        container(mode_buttons).width(Fill).style(top_header_style),
         container(editor_content).height(Fill),
         container(suggestions_panel)
             .height(panel_height)
-            .style(|theme: &iced::Theme| outlined_container_bg(theme, 0.3, 0.5)),
+            .max_width(620)
+            .center_x(Fill)
+            .style(floating_panel_style),
         footer,
     ]
-    .spacing(0);
+    .spacing(10);
 
     container(full_editor_area).width(Fill).height(Fill).into()
 }
@@ -274,7 +283,12 @@ fn build_raw_editor(state: &State) -> Element<'_, Message> {
         .height(Fill)
         .padding(24);
 
-    container(editor).width(Fill).height(Fill).into()
+    container(editor)
+        .width(Fill)
+        .height(Fill)
+        .padding([24, 26])
+        .style(content_card_style)
+        .into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

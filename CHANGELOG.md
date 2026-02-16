@@ -1,3 +1,8 @@
+## [0.1.1] - 2026-02-16
+
+### ⚙️ Miscellaneous Tasks
+
+- Update cargo-bundle version in GitHub Actions workflow to 0.9.0
 ## [0.1.0] - 2026-02-16
 
 ### 🚀 Features

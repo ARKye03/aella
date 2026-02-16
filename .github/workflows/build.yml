@@ -17,11 +17,9 @@ jobs:
         include:
           - os: macos-latest
             target: x86_64-apple-darwin
-            bundle_path: target/release/bundle/osx/Aella.app
             artifact_name: Aella-macOS.app.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            bundle_path: target/release/bundle/msi/*.msi
             artifact_name: Aella-Windows.msi
 
     runs-on: ${{ matrix.os }}
@@ -51,7 +49,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-target-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo-bundle
         run: cargo install cargo-bundle
@@ -79,3 +77,45 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}
           retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        run: |
+          curl -L https://github.com/orhun/git-cliff/releases/latest/download/git-cliff-$(uname -m)-unknown-linux-gnu.tar.gz | tar xz
+          sudo mv git-cliff-*/git-cliff /usr/local/bin/
+          chmod +x /usr/local/bin/git-cliff
+
+      - name: Generate release notes
+        run: git-cliff --strip all --latest > release-notes.md
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Aella-macOS.app.tar.gz
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Aella-Windows.msi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Aella-macOS.app.tar.gz
+            Aella-Windows.msi
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

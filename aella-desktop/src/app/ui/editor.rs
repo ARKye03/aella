@@ -1,8 +1,9 @@
 use crate::app::primary_shortcut_modifier_pressed;
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{
-    TEXT_LOW, command_input_style, content_card_style, danger_button_style, floating_panel_style,
-    footer_style, ghost_button_style, raw_editor_style, segmented_button_style, top_header_style,
+    TEXT_LOW, content_card_style, danger_button_style, document_title_input_style,
+    floating_panel_style, footer_style, ghost_button_style, raw_editor_style,
+    segmented_button_style, top_header_style,
 };
 use harper_core::linting::{Lint, LintKind};
 use iced::keyboard;
@@ -10,7 +11,7 @@ use iced::widget::text::Highlighter;
 use iced::widget::{
     button, column, container, markdown, row, scrollable, svg, text, text_editor, text_input,
 };
-use iced::{Element, Fill, Radians, Rotation};
+use iced::{Element, Fill, Font, Radians, Rotation};
 use std::ops::Range;
 
 const APPLY_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/apply.svg");
@@ -22,8 +23,13 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     let title_input = text_input("Conversation title", &state.current_title)
         .on_input(Message::TitleChanged)
         .on_submit(Message::SaveTitle)
-        .padding([12, 16])
-        .style(command_input_style)
+        .padding([6, 4])
+        .size(28)
+        .font(Font {
+            weight: iced::font::Weight::Bold,
+            ..Font::DEFAULT
+        })
+        .style(document_title_input_style)
         .width(Fill);
 
     let title_actions: Element<'_, Message> = if state.selected_in_trash {
@@ -43,7 +49,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
 
     let title_bar = row![title_input, title_actions]
         .spacing(8)
-        .padding([14, 18])
+        .padding([4, 2])
         .align_y(iced::Center);
 
     let apply_icon = svg(APPLY_ICON_PATH)
@@ -273,7 +279,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
     .style(footer_style);
 
     let full_editor_area = column![
-        container(title_bar).width(Fill).style(top_header_style),
+        container(title_bar).width(Fill),
         container(mode_buttons).width(Fill).style(top_header_style),
         container(editor_content).height(Fill),
         container(suggestions_panel)

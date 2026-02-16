@@ -277,6 +277,24 @@ pub(crate) fn command_input_style(
     }
 }
 
+pub(crate) fn document_title_input_style(
+    _theme: &iced::Theme,
+    _status: text_input::Status,
+) -> text_input::Style {
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border {
+            radius: 0.0.into(),
+            width: 0.0,
+            color: Color::TRANSPARENT,
+        },
+        icon: TEXT_LOW,
+        placeholder: with_alpha(TEXT_LOW, 0.85),
+        value: TEXT_HIGH,
+        selection: with_alpha(ACCENT, 0.35),
+    }
+}
+
 pub(crate) fn raw_editor_style(
     _theme: &iced::Theme,
     status: text_editor::Status,

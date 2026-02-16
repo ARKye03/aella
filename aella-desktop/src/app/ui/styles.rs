@@ -384,6 +384,24 @@ pub(crate) fn floating_panel_style(_theme: &iced::Theme) -> container::Style {
     }
 }
 
+pub(crate) fn collapsed_status_pill_style(_theme: &iced::Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(with_alpha(Color::BLACK, 0.62))),
+        text_color: Some(TEXT_BODY),
+        border: Border {
+            width: 1.0,
+            color: with_alpha(BORDER_SUBTLE, 0.5),
+            radius: 999.0.into(),
+        },
+        shadow: Shadow {
+            color: with_alpha(Color::BLACK, 0.45),
+            offset: Vector::new(0.0, 4.0),
+            blur_radius: 14.0,
+        },
+        ..Default::default()
+    }
+}
+
 pub(crate) fn footer_style(_theme: &iced::Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(with_alpha(PANEL_BG, 0.82))),

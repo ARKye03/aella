@@ -25,12 +25,12 @@ fn app_icon() -> Option<window::Icon> {
     #[cfg(target_os = "windows")]
     {
         let bytes = include_bytes!("../assets/aellaWindowsIcon.ico");
-        return window::icon::from_file_data(bytes, None).ok();
+        window::icon::from_file_data(bytes, None).ok()
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         let bytes = include_bytes!("../assets/aella.icns");
-        return window::icon::from_file_data(bytes, None).ok();
+        window::icon::from_file_data(bytes, None).ok()
     }
 }

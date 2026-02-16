@@ -15,8 +15,6 @@ image = "0.25.9"
 name = "Aella"
 identifier = "com.arkye03.aella"
 icon = [
-    "aella-desktop/assets/aella.icns",
-    "aella-desktop/assets/aellaWindowsIcon.ico",
     "assets/aella.icns",
     "assets/aellaWindowsIcon.ico",
 ]

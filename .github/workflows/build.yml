@@ -1,0 +1,136 @@
+name: Build Desktop App
+
+on:
+  push:
+    branches: [trunk]
+    tags:
+      - 'v*.*.*'
+
+# Prevent concurrent builds on the same ref
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+# Principle of least privilege
+permissions:
+  contents: read
+
+jobs:
+  build:
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: Aella-macOS.app.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: Aella-Windows.msi
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-release
+
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle --locked --version 0.6.0
+
+      - name: Build bundle
+        run: cargo bundle -p aella-desktop --release
+
+      - name: Package macOS app
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd target/release/bundle/osx
+          tar -czf ../../../../${{ matrix.artifact_name }} Aella.app
+
+      - name: Find Windows MSI
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          MSI_PATH=$(find target/release/bundle/msi -name "*.msi" -type f | head -n 1)
+          test -n "$MSI_PATH" || { echo "Error: MSI not found"; exit 1; }
+          echo "MSI_PATH=$MSI_PATH" >> $GITHUB_ENV
+          cp "$MSI_PATH" "${{ matrix.artifact_name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        run: |
+          VERSION="2.7.0"
+          ARCH=$(uname -m)
+          TARBALL="git-cliff-${VERSION}-${ARCH}-unknown-linux-gnu.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://github.com/orhun/git-cliff/releases/download/v${VERSION}/${TARBALL}" \
+            -o "${TARBALL}"
+          tar xzf "${TARBALL}"
+          sudo mv git-cliff-*/git-cliff /usr/local/bin/
+          chmod +x /usr/local/bin/git-cliff
+
+      - name: Generate release notes
+        run: git-cliff --strip all --latest > release-notes.md
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Aella-macOS.app.tar.gz
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Aella-Windows.msi
+
+      - name: Generate checksums
+        run: |
+          sha256sum Aella-macOS.app.tar.gz > Aella-macOS.app.tar.gz.sha256
+          sha256sum Aella-Windows.msi > Aella-Windows.msi.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Aella-macOS.app.tar.gz
+            Aella-macOS.app.tar.gz.sha256
+            Aella-Windows.msi
+            Aella-Windows.msi.sha256
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

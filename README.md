@@ -6,6 +6,15 @@ Your friendly neighborhood grammar checker, built for speed and simplicity.
 
 Aella is a blazing fast grammar checking app powered by `harper-core`. Whether you prefer a sleek desktop experience or the command line, we've got you covered.
 
+
+### Backstory
+
+I work 5 to 6 days at week as a developer, constantly changing code, adding features, well, the usual.
+I'm always opening PRs, and as a good professional that I'm trying to be; I try to sound good in description, try to be concise, and so on.
+From 0 to 50 times a day I go to ChatGPT and say something like `fix grammar of this: <Enter PR description` I usually don't commit many mistakes while typing but I type fast and I can easily eat an apostrophe, a comma, something. So using ChatGPT for this all the time is inefficient, it might not be that slow, but it's slower compared to this.
+So on my free time I created Aella (A random Greek name I liked), a simple app that checks grammar offline (Only English at the moment), fast, and you just keep your tone. For me it lets me keep my ideas over a paragraph.
+For instance, I type my PR description, copy it to clipboard then in a terminal `echo "$pbpaste" | aella check | pbcopy`, done. Or I can use the Awesome Icy Desktop App.
+
 ## Features
 
 - **Real-time Grammar Checks**: Catch mistakes as you type.

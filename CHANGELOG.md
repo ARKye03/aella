@@ -1,3 +1,8 @@
+## [0.1.2] - 2026-02-16
+
+### ⚙️ Miscellaneous Tasks
+
+- Add bundle icon configuration for macOS and Windows in GitHub Actions workflow
 ## [0.1.1] - 2026-02-16
 
 ### ⚙️ Miscellaneous Tasks

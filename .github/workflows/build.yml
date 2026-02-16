@@ -5,7 +5,6 @@ on:
     branches: [trunk]
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
 
 # Prevent concurrent builds on the same ref
 concurrency:
@@ -18,6 +17,7 @@ permissions:
 
 jobs:
   build:
+    timeout-minutes: 30
     permissions:
       contents: read
 
@@ -80,6 +80,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     permissions:
       contents: write
@@ -92,7 +93,13 @@ jobs:
 
       - name: Install git-cliff
         run: |
-          curl -L https://github.com/orhun/git-cliff/releases/latest/download/git-cliff-$(uname -m)-unknown-linux-gnu.tar.gz | tar xz
+          VERSION="2.7.0"
+          ARCH=$(uname -m)
+          TARBALL="git-cliff-${VERSION}-${ARCH}-unknown-linux-gnu.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://github.com/orhun/git-cliff/releases/download/v${VERSION}/${TARBALL}" \
+            -o "${TARBALL}"
+          tar xzf "${TARBALL}"
           sudo mv git-cliff-*/git-cliff /usr/local/bin/
           chmod +x /usr/local/bin/git-cliff
 

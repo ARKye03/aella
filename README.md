@@ -23,9 +23,9 @@ For instance, I type my PR description, copy it to clipboard then in a terminal 
 
 ## Look and Feel
 
-![Main View](./.github/assets/main.avif)
+![Main View](./.github/assets/mainExpanded.avif)
 
-![Shortcuts Modal](./.github/assets/shortcuts.avif)
+![Shortcuts Modal](./.github/assets/mainCollapsed.avif)
 
 ![Trashed View](./.github/assets/trashView.avif)
 

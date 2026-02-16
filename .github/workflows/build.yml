@@ -27,9 +27,11 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: Aella-macOS.app.tar.gz
+            bundle_icon: assets/aella.icns
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: Aella-Windows.msi
+            bundle_icon: assets/aellaWindowsIcon.ico
 
     runs-on: ${{ matrix.os }}
 
@@ -49,6 +51,13 @@ jobs:
 
       - name: Install cargo-bundle
         run: cargo install cargo-bundle --locked --version 0.9.0
+
+      - name: Configure bundle icon for platform
+        shell: bash
+        run: |
+          perl -0777 -i -pe 's/icon\s*=\s*\[[^\]]*\]/icon = ["${{ matrix.bundle_icon }}"]/s' aella-desktop/Cargo.toml
+          echo "Using bundle icon: ${{ matrix.bundle_icon }}"
+          grep '^icon' aella-desktop/Cargo.toml
 
       - name: Build bundle
         working-directory: aella-desktop

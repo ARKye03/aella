@@ -1,4 +1,4 @@
-use iced::widget::{button, container, text_input};
+use iced::widget::{button, container, text_editor, text_input};
 use iced::{Background, Border, Color, Shadow, Vector};
 
 pub(crate) const SHELL_BG: Color = Color::from_rgb(
@@ -274,6 +274,29 @@ pub(crate) fn command_input_style(
         placeholder: TEXT_LOW,
         value: TEXT_BODY,
         selection: with_alpha(ACCENT, 0.35),
+    }
+}
+
+pub(crate) fn raw_editor_style(
+    _theme: &iced::Theme,
+    status: text_editor::Status,
+) -> text_editor::Style {
+    let mut border = Border {
+        radius: 12.0.into(),
+        width: 1.0,
+        color: with_alpha(BORDER_SUBTLE, 0.85),
+    };
+
+    if matches!(status, text_editor::Status::Focused { .. }) {
+        border.color = with_alpha(ACCENT, 0.75);
+    }
+
+    text_editor::Style {
+        background: Background::Color(with_alpha(PANEL_BG_SOFT, 0.9)),
+        border,
+        placeholder: TEXT_LOW,
+        value: TEXT_BODY,
+        selection: with_alpha(ACCENT, 0.32),
     }
 }
 

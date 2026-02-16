@@ -2,7 +2,7 @@ use crate::app::primary_shortcut_modifier_pressed;
 use crate::app::types::{Message, State, ViewMode};
 use crate::app::ui::styles::{
     TEXT_LOW, command_input_style, content_card_style, danger_button_style, floating_panel_style,
-    footer_style, ghost_button_style, segmented_button_style, top_header_style,
+    footer_style, ghost_button_style, raw_editor_style, segmented_button_style, top_header_style,
 };
 use harper_core::linting::{Lint, LintKind};
 use iced::keyboard;
@@ -97,7 +97,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
                 container(rendered)
                     .width(Fill)
                     .height(Fill)
-                    .padding([24, 26])
+                    .padding([18, 18])
                     .style(content_card_style)
             ]
             .spacing(14)
@@ -113,7 +113,7 @@ pub(crate) fn build_editor_area(state: &State) -> Element<'_, Message> {
             container(rendered)
                 .width(Fill)
                 .height(Fill)
-                .padding([24, 26])
+                .padding([18, 18])
                 .style(content_card_style)
                 .into()
         }
@@ -271,13 +271,14 @@ fn build_raw_editor(state: &State) -> Element<'_, Message> {
             }
         })
         .highlight_with::<LintHighlighter>(highlight_settings, lint_highlight_format)
+        .style(raw_editor_style)
         .height(Fill)
-        .padding(24);
+        .padding([14, 14]);
 
     container(editor)
         .width(Fill)
         .height(Fill)
-        .padding([24, 26])
+        .padding([12, 12])
         .style(content_card_style)
         .into()
 }

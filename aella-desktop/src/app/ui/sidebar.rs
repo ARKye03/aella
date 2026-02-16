@@ -1,8 +1,9 @@
 use crate::app::sidebar_search_input_id;
 use crate::app::types::{Message, State};
 use crate::app::ui::styles::{
-    TEXT_LOW, command_input_style, danger_button_style, ghost_button_style, segmented_button_style,
-    sidebar_item_style, sidebar_shell_style, sidebar_toggle_button_style, tooltip_container_style,
+    TEXT_LOW, command_input_style, compact_avatar_button_style, danger_button_style,
+    ghost_button_style, segmented_button_style, sidebar_item_style, sidebar_shell_style,
+    sidebar_toggle_button_style, tooltip_container_style,
 };
 use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, tooltip};
 use iced::{Center, Color, Element, Fill};
@@ -63,18 +64,21 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                     .iter()
                     .map(|conv| {
                         let badge = compact_title_badge(&conv.title);
+                        let tint = compact_avatar_tint(&conv.title);
                         let compact_button = button(
-                            container(text(badge).size(18).align_x(Center))
+                            container(text(badge).size(16).align_x(Center))
                                 .center_x(Fill)
                                 .center_y(Fill),
                         )
                         .on_press(Message::ConversationSelected(conv.id))
-                        .style(sidebar_item_style(
+                        .style(compact_avatar_button_style(
                             state.selected_conversation == Some(conv.id),
+                            tint,
                         ))
-                        .width(Fill)
-                        .height(52)
+                        .width(38)
+                        .height(38)
                         .padding(0);
+                        let compact_button = container(compact_button).center_x(Fill);
 
                         tooltip(
                             compact_button,
@@ -88,7 +92,7 @@ pub(crate) fn build_sidebar(state: &State) -> Element<'_, Message> {
                     })
                     .collect::<Vec<Element<'_, Message>>>(),
             )
-            .spacing(8),
+            .spacing(10),
         );
 
         let toggle_with_tooltip = tooltip(
@@ -272,4 +276,22 @@ fn compact_title_badge(title: &str) -> String {
         .take(2)
         .collect::<String>()
         .to_ascii_uppercase()
+}
+
+fn compact_avatar_tint(title: &str) -> Color {
+    // Stable hash so tint stays consistent across launches and platforms.
+    let hash = title.as_bytes().iter().fold(0u32, |acc, byte| {
+        acc.wrapping_mul(31).wrapping_add(*byte as u32)
+    });
+
+    let palette = [
+        Color::from_rgb(0.38, 0.53, 0.90), // blue
+        Color::from_rgb(0.32, 0.67, 0.58), // green
+        Color::from_rgb(0.74, 0.56, 0.34), // amber
+        Color::from_rgb(0.67, 0.46, 0.80), // violet
+        Color::from_rgb(0.80, 0.46, 0.56), // rose
+        Color::from_rgb(0.40, 0.66, 0.78), // cyan
+    ];
+
+    palette[(hash as usize) % palette.len()]
 }

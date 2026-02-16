@@ -160,6 +160,60 @@ pub(crate) fn sidebar_item_style(
     }
 }
 
+pub(crate) fn compact_avatar_button_style(
+    selected: bool,
+    tint: Color,
+) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_theme: &iced::Theme, status: button::Status| {
+        let tint_bg = with_alpha(tint, 0.16);
+        let tint_border = with_alpha(tint, 0.34);
+
+        let mut style = button::Style {
+            text_color: if selected {
+                Color::from_rgb(0.93, 0.93, 1.0)
+            } else {
+                TEXT_BODY
+            },
+            background: Some(Background::Color(if selected {
+                with_alpha(ACCENT, 0.24)
+            } else {
+                tint_bg
+            })),
+            border: Border {
+                width: 1.0,
+                color: if selected {
+                    with_alpha(ACCENT, 0.85)
+                } else {
+                    tint_border
+                },
+                radius: 999.0.into(),
+            },
+            ..Default::default()
+        };
+
+        if matches!(status, button::Status::Hovered) {
+            style.background = Some(Background::Color(if selected {
+                with_alpha(ACCENT, 0.34)
+            } else {
+                with_alpha(tint, 0.24)
+            }));
+            style.border.color = if selected {
+                with_alpha(ACCENT, 0.95)
+            } else {
+                with_alpha(tint, 0.46)
+            };
+            style.text_color = TEXT_HIGH;
+        }
+
+        if matches!(status, button::Status::Pressed) {
+            style.background = Some(Background::Color(with_alpha(ACCENT, 0.42)));
+            style.text_color = TEXT_HIGH;
+        }
+
+        style
+    }
+}
+
 pub(crate) fn segmented_button_style(
     selected: bool,
 ) -> impl Fn(&iced::Theme, button::Status) -> button::Style {

@@ -3,7 +3,7 @@ use crate::app::{
     AUTOSAVE_DEBOUNCE, GRAMMAR_CHECK_DEBOUNCE, primary_shortcut_modifier_pressed,
     sidebar_search_input_id,
 };
-use aella_core::Database;
+use aella_core::{Database, UiPrefs};
 use harper_core::Dialect;
 use harper_core::Document;
 use harper_core::linting::{Lint, LintGroup, Linter};
@@ -569,6 +569,12 @@ fn set_sidebar_collapsed(state: &mut State, collapsed: bool) {
     state.now = std::time::Instant::now();
     state.sidebar_collapsed = collapsed;
     state.sidebar_animation.go_mut(collapsed, state.now);
+
+    UiPrefs {
+        sidebar_collapsed: collapsed,
+        errors_panel_collapsed: state.errors_panel_collapsed,
+    }
+    .save();
 }
 
 fn set_errors_panel_collapsed(state: &mut State, collapsed: bool) {
@@ -579,6 +585,12 @@ fn set_errors_panel_collapsed(state: &mut State, collapsed: bool) {
     state.now = std::time::Instant::now();
     state.errors_panel_collapsed = collapsed;
     state.errors_panel_animation.go_mut(collapsed, state.now);
+
+    UiPrefs {
+        sidebar_collapsed: state.sidebar_collapsed,
+        errors_panel_collapsed: collapsed,
+    }
+    .save();
 }
 
 fn remove_shortcut_text_input_artifact(state: &mut State, shortcut_char: char) {

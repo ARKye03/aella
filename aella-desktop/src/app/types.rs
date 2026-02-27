@@ -1,4 +1,4 @@
-use aella_core::{ConversationData, Database};
+use aella_core::{ConversationData, Database, UiPrefs};
 use harper_core::Dialect;
 use harper_core::Document;
 use harper_core::linting::{LintGroup, Linter};
@@ -67,6 +67,8 @@ impl Default for State {
         let grammar_lints = linter.lint(&initial_document);
         let markdown_items: Vec<markdown::Item> = markdown::parse(initial_text).collect();
 
+        let prefs = UiPrefs::load();
+
         Self {
             now: Instant::now(),
             search_query: String::new(),
@@ -76,8 +78,8 @@ impl Default for State {
             selected_in_trash: false,
             current_title: String::from("Untitled"),
             editor_content: text_editor::Content::with_text(initial_text),
-            sidebar_collapsed: false,
-            sidebar_animation: Animation::new(false)
+            sidebar_collapsed: prefs.sidebar_collapsed,
+            sidebar_animation: Animation::new(prefs.sidebar_collapsed)
                 .duration(std::time::Duration::from_millis(220))
                 .easing(Easing::EaseOutCubic),
             linter,
@@ -85,8 +87,8 @@ impl Default for State {
             view_mode: ViewMode::BothViews,
             markdown_items,
             cursor_position: (1, 1),
-            errors_panel_collapsed: true,
-            errors_panel_animation: Animation::new(true)
+            errors_panel_collapsed: prefs.errors_panel_collapsed,
+            errors_panel_animation: Animation::new(prefs.errors_panel_collapsed)
                 .duration(std::time::Duration::from_millis(220))
                 .easing(Easing::EaseOutCubic),
             shortcuts_help_open: false,
